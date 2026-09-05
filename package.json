@@ -7,6 +7,7 @@
     "start": "node server/server.js",
     "test": "node test.js && node tools/selftest.js && node tools/verifytest.js",
     "test:browser": "node probe.js && node tools/e2e.js",
+    "shot": "node tools/shot.js",
     "bot": "node -e \"const AI=require('./tools/ai.js');const r=AI.run({preset:'human'});console.log(r.lines+'줄 / '+r.score+'점 / '+require('./replay.js').fmtTime(r.ticks));\""
   },
   "engines": { "node": ">=22.5" }

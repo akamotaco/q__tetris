@@ -283,8 +283,9 @@
     }
     const url = location.origin + (location.port ? ':' + location.port : '') + '/r/' + res.share;
     const statusLine = res.status === 'flagged'
-      ? '<div class="res warn">' + esc(L.t('submit.flagged')) + ' <code>' + esc(flagText(res.flags)) + '</code></div>'
-      : '<div class="res ok">' + esc(L.t('submit.verified')) + '</div>';
+      ? '<div class="res warn">' + esc(L.t('submit.flagged')) + ' <code>' + esc(flagText(res.hardFlags || res.flags)) + '</code></div>'
+      : '<div class="res ok">' + esc(L.t('submit.verified')) + '</div>' +
+      ((res.softFlags && res.softFlags.length) ? '<div class="res note">' + esc(L.t('submit.soft')) + ' <code>' + esc(flagText(res.softFlags)) + '</code></div>' : '');
     const rank = res.rank
       ? '<div class="rank">' + esc(L.t('submit.rank', { rank: res.rank, total: res.total })) +
       (res.isTop ? ' <b>' + esc(L.t('submit.newTop')) + '</b>' : '') + '</div>' : '';

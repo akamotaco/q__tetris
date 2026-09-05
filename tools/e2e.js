@@ -228,7 +228,13 @@ async function waitHttp(url, tries) {
     const sleep = ms => new Promise(r=>setTimeout(r,ms));
     await sleep(400);
     const tap = async (k, ms) => { window.dispatchEvent(new KeyboardEvent('keydown',{key:k,bubbles:true})); await sleep(ms||30); window.dispatchEvent(new KeyboardEvent('keyup',{key:k,bubbles:true})); };
-    for (let i=0;i<12;i++) { await tap(' ', 50); await sleep(60); }
+    for (let i=0;i<8;i++) {
+      await tap(i%2 ? 'ArrowRight' : 'ArrowLeft', 45);
+      if (i%2===0) await tap('ArrowUp', 45);
+      await tap(' ', 60);
+      await sleep(120);
+      if (D.G.state === 'over') break;      /* 죽으면 스페이스가 재시작이 되니 여기서 멈춘다 */
+    }
     const gap = document.getElementById('rcGap');
     return JSON.stringify({
       shown: !!bar && !bar.classList.contains('hidden'),

@@ -1,0 +1,101 @@
+/**
+ * README용 스크린샷 생성 — 실제로 서버를 띄우고 기록을 몇 개 채운 뒤 캡처한다.
+ *   node tools/shot.js
+ * docs/preview.png (데스크톱) / docs/preview-mobile.png (모바일) 를 갈아쓴다.
+ */
+'use strict';
+process.env.NT_TEST_MODE = '1';
+process.env.NT_DATA = require('path').join(require('os').tmpdir(), 'nt-shot-' + Math.random().toString(36).slice(2, 7));
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
+const RP = require('../replay.js');
+const ID = require('../identity.js');
+const AI = require('./ai.js');
+const V = require('../server/verify.js');
+const srv = require('../server/server.js');
+
+const PORT = 8961, CDP = 9461, BASE = 'http://127.0.0.1:' + PORT;
+const DOCS = path.join(__dirname, '..', 'docs');
+const BROWSER = [
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+].find(p => fs.existsSync(p));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function seed() {
+  const runs = [
+    ['ace', '한별', 4], ['human', '강하나', 8], ['bot', '기계손', 1],
+    ['human', '최둘리', 12], ['casual', '_slow_', 16], ['ace', '달려라', 2],
+  ];
+  for (const [preset, name, level] of runs) {
+    const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const jwk = publicKey.export({ format: 'jwk' });
+    const fp = ID.fpFromHash(crypto.createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex')).fp;
+    const s = await (await fetch(BASE + '/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'marathon', level, fp }) })).json();
+    const rep = AI.run({ seed: s.seed, preset, level, rng: AI.makeRand(preset + name) });
+    const packed = RP.pack(rep);
+    const dg = V.digestOf(RP.unpack(packed));
+    const sig = crypto.sign('sha256', Buffer.from(ID.authPayload('NTSUB1', [dg, s.nonce])), privateKey).toString('base64');
+    const r = await (await fetch(BASE + '/api/submit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ replay: packed, fp, nonce: s.nonce, displayName: name, owner: { jwk, sig }, level }),
+    })).json();
+    console.log(' seed', preset.padEnd(7), 'lv' + level, r.status, (r.flags || []).length ? '⚑' : '', '#' + r.rank);
+    require("../server/db.js").snapshot(10);
+  }
+}
+
+(async () => {
+  if (!BROWSER) { console.log('브라우저 없음'); process.exit(1); }
+  srv.server.listen(PORT, '127.0.0.1');
+  await sleep(400);
+  await seed();
+  require('../server/db.js').snapshot(10);
+
+  const profile = path.join(process.env.TEMP, 'nt-shot-' + Date.now());
+  const b = spawn(BROWSER, ['--headless=new', '--disable-gpu', '--no-first-run', '--hide-scrollbars',
+    '--remote-debugging-port=' + CDP, '--user-data-dir=' + profile, '--mute-audio', '--window-size=1400,1000', BASE + '/?debug'], { stdio: 'ignore' });
+
+  let list = [];
+  for (let i = 0; i < 40; i++) {
+    await sleep(300);
+    try { list = await (await fetch('http://127.0.0.1:' + CDP + '/json/list')).json(); if (list.find(t => t.type === 'page' && t.url.indexOf(BASE) === 0)) break; } catch (e) { }
+  }
+  const t = list.find(x => x.type === 'page' && x.webSocketDebuggerUrl && x.url.indexOf(BASE) === 0);
+  const ws = new WebSocket(t.webSocketDebuggerUrl);
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  let mid = 0; const pend = new Map();
+  ws.addEventListener('message', e => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } });
+  const cmd = (method, params) => new Promise(r => { const i = ++mid; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params: params || {} })); });
+  const ev = async (expr) => { const r = await cmd('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true, timeout: 30000 }); return r.result && r.result.result && r.result.result.value; };
+  const shot = async (file) => {
+    const r = await cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    fs.writeFileSync(file, Buffer.from(r.result.data, 'base64'));
+    console.log(' 저장', file);
+  };
+  await cmd('Runtime.enable'); await cmd('Page.enable');
+  await sleep(1500);
+  /* 보드에 기록이 채워진 상태의 데스크톱 */
+  await ev(`(async function(){ document.getElementById('ovBtn').click(); await new Promise(r=>setTimeout(r,1800));
+    const D=window.TetrisDebug; for(let i=0;i<12;i++){ if(D.G.state==='paused')D.togglePause();
+      window.dispatchEvent(new KeyboardEvent('keydown',{key:i%2?'ArrowRight':'ArrowLeft',bubbles:true})); await new Promise(r=>setTimeout(r,80));
+      window.dispatchEvent(new KeyboardEvent('keyup',{key:i%2?'ArrowRight':'ArrowLeft',bubbles:true}));
+      window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true})); await new Promise(r=>setTimeout(r,140));
+      window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',bubbles:true})); await new Promise(r=>setTimeout(r,120)); }
+    return 1; })()`);
+  await sleep(400);
+  await shot(path.join(DOCS, 'preview.png'));
+
+  /* 모바일 */
+  await cmd('Emulation.clearDeviceMetricsOverride');
+  await cmd('Emulation.setDeviceMetricsOverride', { width: 400, height: 820, deviceScaleFactor: 2, mobile: true });
+  await sleep(1200);
+  await shot(path.join(DOCS, 'preview-mobile.png'));
+
+  b.kill(); srv.server.close();
+  await sleep(200);
+  process.exit(0);
+})().catch(e => { console.error(e); process.exit(1); });

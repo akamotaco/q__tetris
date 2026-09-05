@@ -329,7 +329,7 @@
 
   /** 입력 하나 = 엔진에 전달 + 리플레이에 기록(같은 틱에 적용됨). 재생 중에는 기록하지 않는다. */
   function send(action, kind) {
-    if (!E || paused || G.state === 'ready' || G.state === 'over') return;
+    if (!E || playb || paused || G.state === 'ready' || G.state === 'over') return;
     if (rec && kind !== undefined) rec.inputs.push({ t: E.ticks + 1, a: action, k: kind });
     if (kind === 0) E.release(action); else E.press(action);
   }
@@ -377,6 +377,13 @@
     if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
     const action = KEYMAP[k];
     if (!action) return;
+    if (playb) {
+      /* 리플레이 재생 중이면 게임 입력을 무시한다(재생 엔진을 건드리면 어긋난다).
+         P = 재생 일시정지, R = 재생 종료. */
+      if (action === 'pause') togglePause();
+      else if (action === 'restart') stopPlayback();
+      return;
+    }
     sfx.resume();
     if (action === 'pause') { togglePause(); return; }
     if (action === 'restart') { start(); return; }
@@ -420,9 +427,11 @@
     E.drainEvents();
   }
 
-  /** 서버 세션(1회용 시드) 발급 → 실패하면 오프라인 판 (기록 제출만 비활성) */
-  async function start() {
+  /** 서버 세션(1회용 시드) 발급 → 실패하면 오프라인 판 (기록 제출만 비활성).
+   *  keepChallenge 를 켜면 도전 상태(고스트 바)를 유지한 채 새로 시작한다. */
+  async function start(keepChallenge) {
     if (playb) { stopPlayback(); }
+    if (!keepChallenge && challenge) { challenge = null; CL.hideRaceBar(); }
     hideOverlay();
     sfx.resume();
     const sess = await CL.session(opts);
@@ -512,7 +521,6 @@
   function stopPlayback() {
     playb = null;
     CL.hideReplayBar();
-    opts = { mode: 'marathon', level: 1, g20: false };
     E = null; rec = null;
     G.state = 'ready';
     showOverlay('ready');
@@ -525,7 +533,7 @@
     challenge = { share: share, ghost: data.ghost || [], name: data.displayName || data.codename || '?', board: data.board };
     opts = { mode: data.mode, level: data.level, g20: data.g20 };
     CL.showRaceBar(challenge);
-    await start();
+    await start(true);
   }
 
   /* ================= 루프 ================= */

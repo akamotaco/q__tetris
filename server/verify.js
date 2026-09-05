@@ -161,6 +161,17 @@ function reaction(spawns, inputs) {
   };
 }
 
+/**
+ * 플래그 심각도. soft 는 보드에 표시하지 않고(줄임), hard 만 ⚑ 와 검수 대기열로 간다.
+ * 근거: 세계 상위권은 어차피 기계처럼 규칙적이고 하드드롭 위주라서, soft 지표만으로는
+ * 사람과 도구를 나눌 수 없다. 나눌 수 없는 것을 "의심"으로 표시하면 경고 피로만 만든다.
+ */
+const SEVERITY = {
+  pps_high: 'soft', input_rate: 'soft', metronome: 'soft', reaction_spam: 'soft', machine_like: 'soft',
+  pps_extreme: 'hard', apm_extreme: 'hard', input_burst: 'hard', tick_stacking: 'hard',
+  reaction_superhuman: 'hard', speed_impossible: 'hard', sprint_inhuman: 'hard',
+};
+
 /* ================= 검증 본체 ================= */
 function verify(rec, ctx) {
   ctx = ctx || {};
@@ -208,15 +219,18 @@ function verify(rec, ctx) {
     out.wallclockRatio = gameMs / Math.max(1, realMs);
   }
 
-  /* 5. 인간 가능성 휴리스틱 → flags */
+  /* 5. 인간 가능성 휴리스틱 → flags
+     입력률 지표는 press(누르기)만 센다. release 를 함께 세면 세계기록 수준
+     (탭+회전+하드드롭을 1~2틱 안에 처리)만으로도 가볍게 임계값을 넘는다. */
   const secs = RP.seconds(rec.ticks);
+  const presses = rec.inputs.filter(function (x) { return x.k === 1; });
   const m = {
     secs: secs,
     pps: rec.pieces / secs,
     apm: rec.lines / (secs / 60),
-    ips: rec.inputs.length / secs,
-    perSecPeak: maxPerWindow(rec.inputs, 60),
-    per3SecPeak: maxPerWindow(rec.inputs, 180) / 3,
+    ips: presses.length / secs,
+    perSecPeak: maxPerWindow(presses, 60),
+    per3SecPeak: maxPerWindow(presses, 180) / 3,
     hardShare: sim.trace.locks.length ? sim.trace.hard / sim.trace.locks.length : 0,
     rotPerPiece: rec.pieces ? sim.trace.rotations / rec.pieces : 0,
     stackPeak: sim.trace.maxStack,
@@ -231,16 +245,18 @@ function verify(rec, ctx) {
   if (m.pps > 5.0) out.flags.push('pps_extreme');
   else if (m.pps > 3.2) out.flags.push('pps_high');
   if (m.apm > 260) out.flags.push('apm_extreme');
-  if (m.perSecPeak > 18) out.flags.push('input_burst');
-  if (m.ips > 12) out.flags.push('input_rate');
+  if (m.perSecPeak > 30) out.flags.push('input_burst');
+  if (m.ips > 20) out.flags.push('input_rate');
   if (m.stackPeak > 3) out.flags.push('tick_stacking');
-  if (rh.n > 40 && rh.modeShare > 0.75 && rh.stdev < 2.0) out.flags.push('metronome');
+  if (rh.n > 60 && rh.modeShare > 0.85 && rh.stdev < 1.2) out.flags.push('metronome');
   if (rx.n >= 25 && rx.median <= 3) out.flags.push('reaction_superhuman');
   if (rx.n >= 25 && rx.fastShare > 0.85) out.flags.push('reaction_spam');
   if (m.pps > 2.2 && m.hardShare > 0.97 && rh.modeShare > 0.55) out.flags.push('machine_like');
   if (rec.mode === 'sprint' && rec.ticks < 60 * 26) out.flags.push('sprint_inhuman');
 
-  out.status = out.flags.length ? 'flagged' : 'verified';
+  /* 심각도 분리: soft 는 "관찰 지표"일 뿐(상위권은 정상적으로도 나온다), hard 만 검수 대상. */
+  out.hard = out.flags.filter(function (f) { return SEVERITY[f] === 'hard'; });
+  out.status = out.hard.length ? 'flagged' : 'verified';
   out.ghost = ghostOf(sim);
   out.verifyMs = Date.now() - t0;
   return out;
@@ -301,7 +317,7 @@ function boardList(rows, opt) {
 }
 
 module.exports = {
-  digestOf, cryptosha, verify, ghostOf,
+  digestOf, cryptosha, verify, ghostOf, SEVERITY,
   fpFromJwk, jwkPublicKey, verifyOwnership,
   cleanDisplayName, publicRun, boardList,
   maxPerWindow, rhythm, reaction, median,

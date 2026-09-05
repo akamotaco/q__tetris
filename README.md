@@ -98,6 +98,7 @@ node server/server.js        # → http://localhost:8787   (제출·월드 보�
 npm test            # 코어 77 + 엔진 44 + 서버 80  (의존성·브라우저 불필요)
 npm run test:browser # probe(게임/렌더링) + e2e(서버+브라우저 제출→검증→공유→재생)
 node tools/review.js            # 검수 대기열 (플래그된 기록 + 지표 + 순위 이력)
+npm run shot                    # README 스크린샷 재생성(임시 DB에 기록을 채운 뒤 캡처)
 npm run bot                     # AI로 한 판 돌려 리플레이 생성 확인
 ```
 

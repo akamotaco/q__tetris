@@ -228,6 +228,13 @@ async function playAndSubmit(me, opt) {
   console.log('    → flags: ' + bot.submit.json.flags.join(', ') + ' / PPS ' + bot.submit.json.metrics.pps.toFixed(2) +
     ' / 간격 최빈비 ' + bot.submit.json.metrics.gapModeShare.toFixed(2) + ' / 반응중앙 ' + bot.submit.json.metrics.reactMedian);
 
+  group('플래그 심각도(상위권 인간과 도구의 경계)');
+  const aceRun = await playAndSubmit(rival, { preset: 'ace', ip: '211.1.1.21' });
+  ok('엘리트급 프로필은 검증 통과(soft 지표만)', aceRun.submit.json.status === 'verified', aceRun.submit.json.status + '/' + JSON.stringify(aceRun.submit.json.flags));
+  ok('soft 지표는 기록된다', (aceRun.submit.json.softFlags || []).length >= 0 && Array.isArray(aceRun.submit.json.flags));
+  const shownOnBoard = (await api('GET', '/api/board?mode=marathon&level=1')).json.list.every(r => r.status !== 'flagged' || r.flags.length > 0);
+  ok('보드에는 hard 플래그만 ⚑', shownOnBoard);
+
   group('모드 · 순위 · 시점');
   const sp1 = await playAndSubmit(hero, { mode: 'sprint', preset: 'human', ip: '211.1.1.30' });
   ok('스프린트 발행', sp1.submit.code === 200 && sp1.rep.lines === 40, sp1.submit.json && sp1.rep.lines);

@@ -365,6 +365,7 @@ async function handleApi(req, res, u) {
     const top = DB.topOfBoard(board);
     return json(res, 200, {
       status: run.status, share: run.share, url: '/r/' + run.share,
+      hardFlags: v.hard, softFlags: (v.flags || []).filter(function (f) { return V.SEVERITY[f] !== 'hard'; }),
       rank: run.rank_at_submit, total: DB.countBoard(board),
       isTop: !!(top && top.id === run.id),
       bestRank: DB.bestRankOf(run.id),
