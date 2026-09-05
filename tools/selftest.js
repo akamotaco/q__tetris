@@ -152,7 +152,86 @@ const ws = EN.simulate(wrongSeed);
 ok('시드 교체 → 결과 불일치', ws.engine.boardHash() !== rep.hash);
 ok('해시로 시드 검증 가능', ws.engine.sequenceHash() !== EN.create({ seed: rep.seed }).sequenceHash());
 
-/* ---------- 7. AI 성능(휴리스틱 기준선) ---------- */
+/* ---------- 7. T-스핀 — 가이드라인 판정 (규칙 r1) ---------- */
+group('T-스핀 — 회전으로만 진입해야 인정 (r1)');
+/** TSD 픽스처:
+ *   row17  # . . . . . . . . .      ← 오버행
+ *   row18  . . . _ _ _ . . . .      ← 조각이 채울 자리
+ *   row19  . . . # _ # . . . .      ← 앞면 양쪽 모서리(바닥 아님, 실제 블록)
+ */
+function tsdBoard() {
+  const b = C.createBoard();
+  for (let x = 0; x < 10; x++) {
+    if (x !== 4) b[19][x] = 'J';
+    if (x !== 3 && x !== 4 && x !== 5) b[18][x] = 'J';
+  }
+  b[17][3] = 'J';
+  return b;
+}
+function putT(seed) {
+  const et = EN.create({ seed: seed });
+  et.board = tsdBoard();
+  et.piece = null; et.spawn('T');
+  return et;
+}
+const settle = (et) => { for (let i = 0; i < EN.CLEAR_TICKS + 4; i++) et.tick(); };
+
+let et = putT('tsd-spin');
+et.piece.rot = 1; et.piece.x = 3; et.piece.y = 17;                 //회전 전 상태(접지 확인됨)
+ok('회전 전에는 그 자리에 닿아 있다(회전이 유일한 진입 수단)', C.collides(et.board, C.STATES.T[1], 3, 18));
+ok('회전 성공', et.rotate(1) === true);
+et.lockPiece(); settle(et);
+ok('회전으로 진입 → T-스핀 인정', et.tspins === 1, et.tspins);
+ok('T-스핀 더블 = 2줄 / 1200점', et.lines === 2 && et.score === 1200, et.lines + '/' + et.score);
+
+et = putT('tsd-nosin');
+et.piece.rot = 2; et.piece.x = 3; et.piece.y = 17; et.lockPiece(); settle(et);   //그냥 놓기
+ok('회전 없이 같은 자리 → 일반 더블(300점)', et.tspins === 0 && et.score === 300, et.tspins + '/' + et.score);
+
+et = putT('tsd-inplace');
+et.piece.rot = 1; et.piece.x = 3; et.piece.y = 17; et.rotate(1); et.hardDrop(); settle(et);
+ok('회전 후 제자리 하드 드롭(이동 0)은 스핀 유지', et.tspins === 1 && et.score === 1200, et.tspins + '/' + et.score);
+
+et = EN.create({ seed: 'drop-moves' }); et.piece = null; et.spawn('T');
+et.rotate(1);
+ok('회전 → 플래그', et.spinFlag === true);
+et.hardDrop();                                                   //먼 거리로 미끄러짐
+ok('하드 드롭으로 이동하면 마지막 동작이 회전이 아니다 → 스핀 해제 (r1)', et.spinFlag === false && et.tspins === 0, et.spinFlag + '/' + et.tspins);
+ok('하드 드롭 점수(칸당 +2)는 그대로', et.score >= 30, et.score);
+
+et = putT('gravity');
+et.piece.rot = 2; et.piece.x = 3; et.piece.y = 10;
+let g2 = 0; while (et.pieces === 0 && g2++ < 400) et.tick();      //중력으로만 착지
+ok('중력 착지는 스핀이 아니다', et.tspins === 0, et.tspins);
+
+/* 앞면 모서리가 한쪽만 차도 5번째 킥(대각 만회)이면 full.
+   rot1(nub 오른쪽) · x=3,y=17: 모서리 = (3,17)TL (5,17)TR (3,19)BL (5,19)BR, 앞면은 TR/BR.
+   TL+BL+BR 이 차면 3코너인데 앞면은 BR 하나뿐 → mini. */
+const b5 = C.createBoard();
+b5[17][3] = 'J'; b5[19][3] = 'J'; b5[19][5] = 'J';
+ok('3코너 + 앞면 한쪽 = mini', C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 0) === 'mini',
+  C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 0));
+ok('같은 자리에서 5번째 킥이면 full 로 만회', C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 4) === 'full',
+  C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 4));
+const b5b = C.createBoard();
+b5b[17][3] = 'J'; b5b[17][5] = 'J';
+ok('코너 2개 이하면 노스핀', C.tspinKind(b5b, { type: 'T', x: 3, y: 17, rot: 1 }, 0) === 'none',
+  C.tspinKind(b5b, { type: 'T', x: 3, y: 17, rot: 1 }, 0));
+
+/* ---------- 8. 규칙 버전 ---------- */
+group('규칙 버전(r1)이 리플레이에 박힌다');
+const repV = AI.run({ seed: 'rules-ver', preset: 'human', rng: AI.makeRand('rv') });
+ok('pack 된 리플레이에 규칙 버전', RP.unpack(RP.pack(repV)).rules === EN.RULES_ID, RP.unpack(RP.pack(repV)).rules);
+ok('규칙이 다르면 digest 도 다르다',
+  RP.canonical(Object.assign({}, repV, { rules: 'r9' })) !== RP.canonical(repV));
+ok('NT1(레거시) 포맷도 읽는다', (function () {
+  const p = RP.pack(repV).split(':');                       // NT2 = 12필드
+  const legacyText = 'NT1:' + p.slice(1, 11).join(':');      // 규칙 필드를 뺀 11필드
+  return RP.unpack(legacyText).rules === RP.LEGACY_RULES;
+})());
+
+
+/* ---------- 9. AI 성능(휴리스틱 기준선) ---------- */
 group('AI 기준선');
 const fast = AI.run({ seed: 'fast-bot', skill: { delay: 0, gap: 1 } });
 const slow = AI.run({ seed: 'fast-bot', skill: { delay: 12, gap: 8 } });

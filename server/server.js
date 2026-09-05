@@ -411,7 +411,7 @@ async function handleApi(req, res, u) {
       share: DB.shareKey(), digest: digest, replay: String(body.replay), board: board,
       mode: rec.mode, level: rec.level, g20: rec.g20 ? 1 : 0, seed: rec.seed,
       score: rec.score, lines: rec.lines, pieces: rec.pieces, ticks: rec.ticks, hash: rec.hash,
-      status: 'queued', input_count: rec.inputs.length, ghost: null,
+      rules: rec.rules || EN.RULES_ID, status: 'queued', input_count: rec.inputs.length, ghost: null,
     }, {
       ipHash: iph, ipHint: ID.ipMask(ip), fp: fp, reveal: body.reveal !== false,
       challengeOf: challengeOf, clientVer: body.clientVer, lang: body.lang, issuedAt: tok.issuedAt,
@@ -482,7 +482,7 @@ const server = http.createServer(async (req, res) => {
       if (rel === 'index.html') return serveIndex(req, res, null);
       return serveStatic(res, rel, type);
     }
-    const m = /^\/r\/([0-9a-z]{13})$/.exec(p);            // 공유 링크
+    const m = /^\/r\/([0-9a-z]{17})$/.exec(p);            // 공유 링크
     if (m) {
       const run = DB.getRunByShare(m[1]);
       if (!run || ['rejected', 'hidden', 'withdrawn'].indexOf(run.status) >= 0) {

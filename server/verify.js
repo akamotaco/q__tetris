@@ -186,6 +186,9 @@ function verify(rec, ctx) {
   const shape = RP.checkShape(rec, CFG.LIMITS);
   if (shape.length) return reject('shape:' + shape.join(','));
   if (!EN.MODES[rec.mode]) return reject('shape:mode');
+  /* 규칙 버전이 다르면 재현 자체가 성립하지 않는다 — 비싼 시뮬을 쓰기 전에 early 거둔다.
+     과거 규칙도 검증하려면 그 버전의 규칙 테이블을 따로 보존해야 한다. */
+  if (rec.rules && rec.rules !== EN.RULES_ID) return reject('rules-version:' + rec.rules + '!=' + EN.RULES_ID);
 
   /* 2. 물리적 하한 — 조각/줄 수 대비 너무 짧으면 기각 (짧은 게임 자체는 합법적으로 허용) */
   const L = CFG.LIMITS;
@@ -300,6 +303,7 @@ function publicRun(run, opt) {
     rankAtSubmit: run.rank_at_submit, submittedAt: run.submitted_at, verifiedAt: run.verified_at || null,
     fp: run.fp || null,
     codename: null, ipHint: null,
+    rules: run.rules || null,
     metrics: (function () {
       try { return Object.assign({ pps: run.pps, apm: run.apm, inputs: run.input_count, inpRate: run.inp_rate }, run.metrics ? JSON.parse(run.metrics) : {}); }
       catch (e) { return { pps: run.pps, apm: run.apm, inputs: run.input_count }; }

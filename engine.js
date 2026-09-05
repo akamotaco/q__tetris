@@ -28,6 +28,15 @@
   const MAX_LEVEL = 20;
   const PREVIEW = 5;
 
+  /**
+   * 규칙 버전. 리플레이는 "같은 입력 → 같은 결과"를 약속하는 문서 같은 것이므로,
+   * 점수표·킥 테이블·T-스핀 판정 같은 규칙을 바꾸면 반드시 올린다.
+   * 안 올리면 과거 리플레이가 서버에서 다른 점수로 재현되어 **검증 불가능한 유물**이 되고,
+   * 그건 나중에 되돌릴 방법이 없다.
+   *   r1 : SRS+월킥, 3-corner T-스핀(5th킥 full 승격), **하드 드롭으로 이동하면 스핀 해제**, 가이드라인 스코어링
+   */
+  const RULES_ID = 'r1';
+
   /* ---------- 모드 ---------- */
   const MODES = {
     marathon: { name: 'MARATHON', targetLines: 0, timeLimit: 0, metric: 'score' },
@@ -96,6 +105,7 @@
       g20: g20,
       seed: seed,
       version: 1,
+      rules: RULES_ID,
 
       state: 'playing',      // playing | clearing | over
       overReason: null,      // topout | finish | time
@@ -235,6 +245,11 @@
       while (!C.collides(E.board, m, E.piece.x, E.piece.y + 1)) { E.piece.y++; dist++; }
       E.lastHard = true;
       if (dist) {
+        /* 가이드라인: T-스핀은 "마지막 동작이 회전"일 때만 인정된다.
+           아래로 미끄러져 내려갔다면 마지막 동작은 이동이므로 스핀이 아니다.
+           단 이동 거리가 0(제자리에서 회전하고 그대로 잠금)이면 회전 효과가 남는다 —
+           회전 인스냅트 착지의 일반 동작과 일치. */
+        E.spinFlag = false;
         E.score += dist * 2;
         ev('harddrop', {
           dist: dist,
@@ -496,7 +511,7 @@
     /** 서버 검증·보드에 쓰이는 최종 결과 (재현 판정 대상) */
     function result() {
       return {
-        mode: E.mode, level: E.startLevel, g20: E.g20, seed: E.seed,
+        mode: E.mode, level: E.startLevel, g20: E.g20, seed: E.seed, rules: E.rules,
         score: E.score, lines: E.lines, pieces: E.pieces, ticks: E.ticks,
         hash: boardHash(),
         state: E.state, overReason: E.overReason,
@@ -583,6 +598,7 @@
   }
 
   return {
+    RULES_ID: RULES_ID,
     TICK: TICK, HZ: HZ,
     DAS: DAS, ARR: ARR, SOFT: SOFT, LOCK: LOCK, CLEAR_TICKS: CLEAR_TICKS,
     MAX_RESETS: MAX_RESETS, MAX_LEVEL: MAX_LEVEL, PREVIEW: PREVIEW,

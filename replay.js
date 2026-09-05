@@ -17,7 +17,10 @@
 })(typeof self !== 'undefined' ? self : globalThis, function (EN) {
   'use strict';
 
-  const VERSION = 'NT1';
+  /* NT2 = 규칙 버전(r1 등)을 payload 끝에 붙인다. NT1(레거시) 은 r0 으로 읽는다.
+     규칙이 다른 리플레이는 서버가 재현할 수 없으니 일찍 구분해 둔다. */
+  const VERSION = 'NT2';
+  const LEGACY_RULES = 'r0';
   const PRESS = { left: 'l', right: 'r', down: 'd', cw: 'c', ccw: 'z', flip: 'f', hard: 'h', hold: 'o' };
   const REL = { left: 'L', right: 'R', down: 'D' };
   const BY_CODE = {};
@@ -59,7 +62,7 @@
 
   /** 서버·클라임이 같은 문자열로 digest 를 만들 수 있도록 규격화를 한 곳에 둔다. */
   function canonical(rec) {
-    return [VERSION, rec.mode, rec.level | 0, rec.g20 ? 1 : 0, rec.seed, encodeInputs(rec.inputs || [])].join('|');
+    return ['NT', rec.rules || LEGACY_RULES, rec.mode, rec.level | 0, rec.g20 ? 1 : 0, rec.seed, encodeInputs(rec.inputs || [])].join('|');
   }
 
   /* ---- 전체 레코드 ---- */
@@ -67,14 +70,15 @@
     return [
       VERSION, rec.mode, rec.level | 0, rec.g20 ? 1 : 0, rec.seed,
       rec.ticks | 0, rec.score | 0, rec.lines | 0, rec.pieces | 0, rec.hash,
-      encodeInputs(rec.inputs || []),
+      encodeInputs(rec.inputs || []), rec.rules || EN.RULES_ID,
     ].join(':');
   }
 
   function unpack(text) {
     const p = String(text).trim().split(':');
-    if (p.length !== 11) throw new Error('항목 수 불일치');
-    if (p[0] !== VERSION) throw new Error('버전 불일치: ' + p[0]);
+    const legacy = p[0] === 'NT1';
+    if (p.length !== (legacy ? 11 : 12)) throw new Error('항목 수 불일치');
+    if (!legacy && p[0] !== VERSION) throw new Error('버전 불일치: ' + p[0]);
     const mode = p[1];
     if (!EN.MODES[mode]) throw new Error('알 수 없는 모드: ' + mode);
     const inputs = decodeInputs(p[10]);
@@ -89,6 +93,7 @@
       lines: parseInt(p[7], 10) || 0,
       pieces: parseInt(p[8], 10) || 0,
       hash: p[9],
+      rules: legacy ? LEGACY_RULES : p[11],
       inputs: inputs,
       lastInputTick: inputs.length ? inputs[inputs.length - 1].t : 0,
     };
@@ -96,6 +101,7 @@
 
   /** 서버가 재시뮬하기 전에 거르는 저비용 형태 검사 */
   const SEED_RE = /^[0-9a-zA-Z_-]{6,64}$/;
+  const RULES_RE = /^[a-z][a-z0-9]{0,3}$/;
   function checkShape(rec, lim) {
     lim = lim || {};
     const maxInputs = lim.maxInputs || 40000;
@@ -111,6 +117,7 @@
     if (!(rec.lines >= 0 && rec.lines <= 4000)) errs.push('lines');
     if (!(rec.pieces >= 0 && rec.pieces <= 40000)) errs.push('pieces');
     if (!/^[0-9a-z]{4,10}$/.test(String(rec.hash))) errs.push('hash');
+    if (!RULES_RE.test(String(rec.rules || LEGACY_RULES))) errs.push('rules');
     if (!(rec.inputs.length > 0)) errs.push('no-inputs');
     if (rec.inputs.length > maxInputs) errs.push('too-many-inputs');
     let prev = 0;
@@ -157,6 +164,7 @@
 
   return {
     VERSION: VERSION,
+    LEGACY_RULES: LEGACY_RULES,
     canonical: canonical,
     PRESS: PRESS, REL: REL,
     encodeInputs: encodeInputs,

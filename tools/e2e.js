@@ -9,7 +9,12 @@
 process.env.NT_TEST_MODE = '1';
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
+
+/* 리플레이/공유 키 형식이 바뀌면 이전 테스트 DB 와 섞이지 않는다 (스키마는 마이그레이션되지만
+   구버전 공유 키·시드는 새 검증기와 맞지 않아서 오진이 난다). */
+process.env.NT_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-e2e-'));
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = 8931 + Math.floor(Math.random() * 40);
@@ -175,9 +180,9 @@ async function waitHttp(url, tries) {
   ok('서버 응답 도달', !!play.res, play.res);
   ok('검증 통과(verified 또는 flagged)', play.ok || play.warn, play.res);
   ok('순위 문구', /\d+위|rank|#/i.test(play.rank), play.rank);
-  ok('packed 리플레이 생성', /^NT1:/.test(play.packed || ''), play.packed);
+  ok('packed 리플레이 생성', /^NT2:/.test(play.packed || ''), play.packed);
   const share = (play.shareUrl || '').split('/r/')[1];
-  ok('공유 키 발급', /^[0-9a-f]{12}[0-9a-z]$/.test(share || ''), play.shareUrl);
+  ok('공유 키 발급', /^[0-9a-f]{16}[0-9a-z]$/.test(share || ''), play.shareUrl);
   console.log('    → ' + play.score + '점 / ' + play.lines + '줄 / share ' + share + ' / ' + play.res);
   group('3. 서버 측 결과와 브라우저 결과가 일치');
   const api = await (await fetch(BASE + '/api/replay/' + share)).json();

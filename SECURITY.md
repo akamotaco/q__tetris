@@ -16,6 +16,7 @@
 | 남의 리플레이 복사→내 이름 등록 | ① 시드 1회용(그대로 재제출 불가) ② 내용 digest UNIQUE(선등록 우선, 409 + 원본 링크) ③ 소유 서명 | `verify.js:digestOf`, `server.js /api/submit` |
 | 내 서명을 남의 내용에 붙이기 | 서명 대상 = `NTSUB1\n<content digest>\n<nonce>` | `identity.js:authPayload` |
 | 지문(`bbewsh`) 총공격으로 남의 기록 열거 | `/api/mine`, `/api/hide`는 서명 요구 | `server.js:ownership()` |
+| 공유 링크 무작위 추측으로 남의 기록 뒤지기 | 링크 키 **64bit + 체크섬**, 만료 없음·검색 인덱스 없음. 맞혀도 공개 정책상 이름은 안 나옴 | `db.js:shareKey()` |
 | 이름으로 모든 기록 뒤지기 | **그 API가 존재하지 않는다.** 이름은 공유 링크에만 표시 | `verify.js:publicRun` |
 | 보드 응답에 이름 슬쩍 | 보드/기간/집계 뷰는 `displayName` 필드를 만들지 않음(테스트로 고정) | `tools/verifytest.js` '이름 비노출 정책' |
 | 검색엔진이 공유 페이지 이름 색인 | `/r/*`에 `X-Robots-Tag: noindex` | `server.js:serveIndex` |
@@ -23,6 +24,7 @@
 | 내부 파일(`server/db.js`, `data/tetris.db`) 노출 | 정적 파일 허용 목록 | `server.js:STATIC` |
 | 부하 공격(재시뮬은 CPU를 쓴다) | 본문 512KB, 입력/틱 상한, **재시뮬은 워커 스레드만**(메인 스레드 정지 불가), 대기열 상한 + 네트워크/지문당 동시 대기 제한, IP·지문별 레이트리밋, 기각 반복 시 자동 차단 | `config.js:LIMITS`, `server/queue.js` |
 | 대기열 앞줄 사기(우선순위 어뷰지) | 우선순위에 **주장 점수를 쓰지 않는다**. 검증 이력 + 기각 0 + 상위권 전망이 있는 기기만 우선 티어. 티어 안은 FIFO, 오래 기다리면 승격 | `server/queue.js:tierOf` |
+| 다른 규칙 버전 리플레이로 재시뮬을 태워 워커를 묾 | 재시뮬 전에 `rules-version` 으로 early 거절(시뮬은 큐에서 가장 비싼 작업) | `verify.js` 상단 |
 
 **기각 사유는 5종으로 좁혀 있다**: 형태 / 시드 / digest 소유자 불일치 / 재시뮬 불일치 / 월클럭. 나머지는 전부 `flagged`로 남기고 사람이 본다. 자동 판정으로 사람을 못 들어가게 하는 것은 승인이 필요한 보드에서 특히 나쁜 기본값이기 때문이고, 무엇보다 **만능 자동 탐지는 존재하지 않는다.**
 

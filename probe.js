@@ -437,7 +437,22 @@ async function waitForTarget() {
   console.log('   ', mob);
   await cmd('Emulation.clearDeviceMetricsOverride');
 
-  console.log('\n[7] 스크린샷 저장');
+  console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');
+  const RULES_EXPECT = 'r1';
+  const startPath = JSON.parse(await evalJS(`(async () => {
+    const out = { err: null, meta: null };
+    try {
+      window.TetrisDebug.start();               // 버튼과 동일한 경로 — 여기서 예외가 나면 안 된다
+      await new Promise(r => setTimeout(r, 120));
+      out.meta = window.TetrisDebug.recMeta();
+    } catch (e) { out.err = String((e && e.message) || e); }
+    return JSON.stringify(out);
+  })()`, true));
+  console.log('   ', startPath.err ? ('EX: ' + startPath.err) : startPath.meta);
+  if (startPath.err) errors.push('START: ' + startPath.err);
+  if (!startPath.meta || startPath.meta.rules !== RULES_EXPECT) errors.push('START: 녹화 메타에 규칙 버전 없음');
+
+  console.log('\n[8] 스크린샷 저장');
   await cmd('Emulation.setDeviceMetricsOverride', { width: 400, height: 780, deviceScaleFactor: 2, mobile: true });
   await sleep(600);
   const shot2 = await cmd('Page.captureScreenshot', { format: 'png' });

@@ -141,7 +141,7 @@ async function playAndSubmit(me, opt) {
   ok('status verified 또는 flagged', ['verified', 'flagged'].indexOf(p1.submit.json.status) >= 0, p1.submit.json);
   ok('점수가 실제로 재현됨(서버 재시뮬)', p1.submit.json.status !== 'rejected');
   ok('1위 등록', p1.submit.json.rank === 1, p1.submit.json.rank);
-  ok('공유 키 형식', /^[0-9a-f]{12}[0-9a-z]$/.test(p1.submit.json.share || ''), p1.submit.json.share);
+  ok('공유 키 형식', /^[0-9a-f]{16}[0-9a-z]$/.test(p1.submit.json.share || ''), p1.submit.json.share);
   ok('flags 배열', Array.isArray(p1.submit.json.flags));
   console.log('    → ' + p1.submit.json.status + ' / ' + p1.rep.score + '점 / PPS ' + p1.submit.json.metrics.pps.toFixed(2) +
     ' / gapModeShare ' + (p1.submit.json.metrics.gapModeShare || 0).toFixed(2) + ' / flags ' + (p1.submit.json.flags||[]).join(',') + ' / share ' + p1.submit.json.share);
@@ -208,6 +208,18 @@ async function playAndSubmit(me, opt) {
   const unknownSeed = RP.pack(AI.run({ seed: 'not-issued-by-server', preset: 'casual' }));
   const uns = await api('POST', '/api/submit', { replay: unknownSeed, fp: thief.fp }, '211.1.1.15');
   ok('서버 미발급 시드 → 거부', uns.code === 422 && uns.json.why === 'seed-unknown', uns.json);
+
+  /* 다른 규칙 버전의 리플레이는 재시뮬을 태우지 않고 early 거절 (소유권까지 통과된 정상 요청 가정) */
+  const rvs = await api('POST', '/api/session', { mode: 'marathon', fp: thief.fp }, '211.1.1.18');
+  const rvRep = AI.run({ seed: rvs.json.seed, preset: 'casual', rng: AI.makeRand('rv') });
+  const rvRec = RP.unpack(RP.pack(rvRep)); rvRec.rules = 'r9';
+  const rvPacked = RP.pack(rvRec);
+  const rv = await api('POST', '/api/submit', {
+    replay: rvPacked, fp: thief.fp, nonce: rvs.json.nonce,
+    owner: { jwk: thief.jwk, sig: thief.sign('NTSUB1', [V.digestOf(rvRec), rvs.json.nonce]) },
+  }, '211.1.1.18');
+  const rvDone = await settleSubmit(rv);
+  ok('다른 규칙 버전 → rules-version 으로 기각', rvDone.code === 422 && /rules-version/.test(rvDone.json.code || ''), rvDone.json);
 
   // 남의 1회용 시드를 내 입력에 붙이면? (시드만 훔치는 경우)
   const hijack = AI.run({ seed: 'dummy', preset: 'casual' });

@@ -611,12 +611,8 @@
 
   /** /r/<share> 로 직접 들어온 경우 키 추출 */
   CL.pathShare = function () {
-    const m = /^\/r\/([0-9a-z]{13})$/.exec(location.pathname);
-    if (!m) return null;
-    const k = m[1];
-    let sum = 0;
-    for (let i = 0; i < 12; i++) sum += k.charCodeAt(i) * (i + 3);
-    return (sum % 36).toString(36) === k[12] ? k : k;   // 체크섬 실패해도 일단 시도(서버가 404)
+    const m = /^\/r\/([0-9a-z]{17})$/.exec(location.pathname);
+    return m ? m[1] : null;          // 체크섬까지 포함한 형식은 서버가 검사한다
   };
   CL.t = function (k, v) { return L.t(k, v); };
 })();

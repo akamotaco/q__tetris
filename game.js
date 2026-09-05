@@ -418,7 +418,7 @@
 
   function engineFor(seed) {
     E = EN.create({ seed: seed, mode: opts.mode, level: opts.level, g20: opts.g20 });
-    rec = { seed: seed, mode: opts.mode, level: opts.level, g20: opts.g20, startedAt: Date.now(), inputs: [] };
+    rec = { seed: seed, mode: opts.mode, level: opts.level, g20: opts.g20, rules: EN.RULES_ID, startedAt: Date.now(), inputs: [] };
     playb = null;
     paused = false;
     G.particles.length = 0; G.popups.length = 0; G.shake = 0;
@@ -963,6 +963,8 @@
       replay: function (share) { return startPlayback(share, true); },
       challenge: function (share) { return startChallenge(share); },
       packed: function () { return G.lastPacked; },
+      /** 녹화 중인 메타(start 직전/중) — 규칙 버전 등이 처음부터 박혀 있는지 검사용 */
+      recMeta: function () { return rec ? { rules: rec.rules, mode: rec.mode, level: rec.level, seed: rec.seed, inputs: rec.inputs.length } : null; },
     };
   }
 

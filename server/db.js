@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS runs (
   challenge_of TEXT,                  -- 격파 대상 share 키
   rank_at_submit INTEGER,
   client_ver TEXT, lang TEXT, issued_at INTEGER, submitted_at INTEGER NOT NULL,
+  rules TEXT,                      -- 어떤 규칙 버전으로 플레이됐는지 (재현 가능성의 기준)
   verified_at INTEGER,                 -- 검증(또는 기각)이 끝난 시각
   metrics TEXT,                        -- 검증 때 계산한 지표 JSON (검수용)
   mismatch TEXT,                       -- 기각된 경우 어긋난 칸
@@ -143,6 +144,7 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
     if (!rc.has(name)) { console.log('[migrate] runs.' + name + ' 추가'); db.exec('ALTER TABLE runs ADD COLUMN ' + decl); }
   };
   add('verified_at', 'INTEGER');
+  add('rules', 'TEXT');
   add('metrics', 'TEXT');
   add('mismatch', 'TEXT');
   add('queue_tier', 'INTEGER DEFAULT 1');
@@ -167,18 +169,20 @@ function boardParts(key) {
 }
 function metricOf(mode) { return mode === 'sprint' ? 'time' : 'score'; }
 
+/* 공유 링크는 만료시키지 않고 영원히 유지한다 → 링크가 곧 소유 증서다.
+   그래서 48bit(12 hex) 가 아니라 64bit + 오타 탐지 체크섬 1자. */
 function shareKey() {
-  const raw = crypto.randomBytes(6).toString('hex');
+  const raw = crypto.randomBytes(8).toString('hex');
   let sum = 0;
   for (let i = 0; i < raw.length; i++) sum += raw.charCodeAt(i) * (i + 3);
   return raw + (sum % 36).toString(36);
 }
 function validShare(key) {
-  if (!/^[0-9a-f]{12}[0-9a-z]$/.test(String(key || ''))) return false;
+  if (!/^[0-9a-f]{16}[0-9a-z]$/.test(String(key || ''))) return false;
   let sum = 0;
-  const raw = key.slice(0, 12);
+  const raw = key.slice(0, 16);
   for (let i = 0; i < raw.length; i++) sum += raw.charCodeAt(i) * (i + 3);
-  return (sum % 36).toString(36) === key.slice(12);
+  return (sum % 36).toString(36) === key.slice(16);
 }
 
 /* ================= 레이트리밋 / 차단 ================= */
