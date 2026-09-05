@@ -62,8 +62,15 @@
     EMPTY_TOP[t] = top;
   });
 
-  /* ---- SRS 킥 테이블 (화면 좌표: y 아래가 +) ---- */
-  const RAW_KICKS = {
+  /* ---- SRS 월킥 테이블 ----
+     아래 값은 가이드라인(Tetris Wiki "Super Rotation System") 원문을 **그대로** 옮겨 적는다.
+     단 원문 좌표계는 **y-up(위가 +)** 이다:
+       "a convention of positive x rightwards, positive y upwards is used,
+        e.g. (-1,+2) would indicate a kick of 1 cell left and 2 cells up"
+     우리 보드는 y-down(아래가 +)이므로, 밖으로 내보내는 kicksFor() 가 세로 성분을 뒤집는다.
+     이 변환을 빼먹으면 킥의 위/아래가 뒤바뀐 채로 적용되어 **공식 SRS와 다른 셋업**이 생긴다
+     (0→R 4번째 시험은 본래 "2칸 아래"인데 "2칸 위"로 시도하게 된다). r1 까지 이 실수가 있었고 r2 에서 바로잡았다. */
+  const KICKS_Y_UP = {
     JLSTZ: {
       '0>1': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
       '1>0': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
@@ -85,14 +92,24 @@
       '0>3': [[0, 0], [-1, 0], [1, 0], [-1, 2], [1, -1]],
     },
   };
+  /* 180° 회전은 공식 SRS에 없다(현대 컨트롤 확장). 따라서 원문 테이블도 없고 값은 자체 설계이며,
+     처음부터 **화면 좌표(y-down)** 로 작성했다 — 위에서 뒤집는 것들과 섞지 말 것. */
   const KICKS_180 = [[0, 0], [1, 0], [-1, 0], [0, 1], [1, 1], [-1, 1], [0, -1]];
 
+  /** 화면 좌표 기준 킥 후보 목록 (가이드라인 원문 값의 세로 성분을 변환해 반환) */
   function kicksFor(type, from, to) {
     if (type === 'O') return [[0, 0]];
-    const table = type === 'I' ? RAW_KICKS.I : RAW_KICKS.JLSTZ;
+    const table = type === 'I' ? KICKS_Y_UP.I : KICKS_Y_UP.JLSTZ;
     const key = from + '>' + to;
-    if (table[key]) return table[key];
-    return [[0, 0]];
+    const raw = table[key];
+    if (!raw) return [[0, 0]];
+    return raw.map(function (o) { return [o[0], -o[1]]; });
+  }
+  /** 원문 그대로의 값(진단/테스트용) */
+  function kicksForGuideline(type, from, to) {
+    if (type === 'O') return [[0, 0]];
+    const table = type === 'I' ? KICKS_Y_UP.I : KICKS_Y_UP.JLSTZ;
+    return table[from + '>' + to] || [[0, 0]];
   }
 
   /* ---- 보드 ---- */
@@ -286,6 +303,7 @@
     KICKS_180: KICKS_180,
     CLEAR_NAME: CLEAR_NAME,
     kicksFor: kicksFor,
+    kicksForGuideline: kicksForGuideline,
     createBoard: createBoard,
     isSolid: isSolid,
     cellsOf: cellsOf,

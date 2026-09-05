@@ -155,6 +155,133 @@ console.log('\n[7-bag]');
   ok(C.TYPES.every(function (t) { return counts[t] === 10; }), '70개 → 각 타입 정확히 10개');
 })();
 
+console.log('\n[SRS 공식 테이블 호환 — 좌표계 변환]');
+(function () {
+  /* 가이드라인 원문(Tetris Wiki SRS)을 직접 옮겨 적어, 우리 테이블과 값·순서가 같은지 고정보고,
+     그 원문 값은 **y-up** 이므로 화면 좌표로 쓴다면 세로 성분이 뒤집혀야 한다. */
+  const GL = {
+    JLSTZ: {
+      '0>R': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+      'R>0': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+      'R>2': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+      '2>R': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+      '2>L': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+      'L>2': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+      'L>0': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+      '0>L': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+    },
+    I: {
+      '0>R': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+      'R>0': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+      'R>2': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+      '2>R': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
+      '2>L': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
+      'L>2': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+      'L>0': [[0, 0], [1, 0], [-1, 0], [1, -2], [-1, 1]],
+      '0>L': [[0, 0], [-1, 0], [1, 0], [-1, 2], [1, -1]],
+    },
+  };
+  const NAME = { 0: '0', 1: 'R', 2: '2', 3: 'L' };
+  let mismatch = 0, flipBad = 0;
+  ['JLSTZ', 'I'].forEach(function (k) {
+    const pieces = k === 'I' ? ['I'] : ['J', 'L', 'S', 'T', 'Z'];
+    pieces.forEach(function (p) {
+      [[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [3, 0], [0, 3]].forEach(function (ft) {
+        const src = GL[k][NAME[ft[0]] + '>' + NAME[ft[1]]];
+        const raw = C.kicksForGuideline(p, ft[0], ft[1]);
+        if (JSON.stringify(src) !== JSON.stringify(raw)) mismatch++;
+        const screen = C.kicksFor(p, ft[0], ft[1]);
+        if (JSON.stringify(screen) !== JSON.stringify(src.map(function (o) { return [o[0], -o[1]]; }))) flipBad++;
+      });
+    });
+  });
+  ok('킥 테이블이 가이드라인 원문과 동일(8전환×6조각)', mismatch === 0, mismatch + '건 불일치');
+  ok('kicksFor() 는 세로 성분을 화면 좌표로 뒤집어 반환', flipBad === 0, flipBad + '건 불일치');
+
+  /* 대표 값 하나만 더 못 박기: 0→R 4번째 시험은 "2칸 아래"(화면 좌표 +2) 여야 한다.
+     r1 까지는 이게 "2칸 위"로 적용되어 조각이 선을 타고 솟아올랐다. */
+  ok('0→R 4번째 시험 = 2칸 아래', C.kicksFor('T', 0, 1)[3][1] === 2, JSON.stringify(C.kicksFor('T', 0, 1)[3]));
+  ok('0→R 3번째 시험 = 왼쪽+1칸 위', JSON.stringify(C.kicksFor('T', 0, 1)[2]) === '[-1,-1]', JSON.stringify(C.kicksFor('T', 0, 1)[2]));
+})();
+
+console.log('\n[SRS 참조 구현과 무작위 대조]');
+(function () {
+  /* 원문 값을 y-up 으로 해석하는 참조 구현을 따로 돌려, 엔진이 쓰는 변환 후 테이블과
+     같은 자리에서 같은 결과가 나오는지 넓게 확인한다. (이 검사가 r1 의 부호 오류를 잡는다.) */
+  function refRotate(b, type, rot, x, y, dir) {
+    const to = (rot + (dir > 0 ? 1 : 3)) % 4;
+    const m = C.STATES[type][to];
+    const src = C.kicksForGuideline(type, rot, to);
+    for (let i = 0; i < src.length; i++) {
+      const nx = x + src[i][0], ny = y - src[i][1];      // y-up → y-down
+      if (!C.collides(b, m, nx, ny)) return { rot: to, x: nx, y: ny, kick: i };
+    }
+    return null;
+  }
+  let s = 20260906;
+  const rnd = function () { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+  let n = 0, bad = 0, kickUsed = 0, differingFromNaive = 0;
+  function naiveRotate(b, type, rot, x, y, dir) {   // 부호 변환을 빼먹은 r1 방식 (대조용)
+    const to = (rot + (dir > 0 ? 1 : 3)) % 4, m = C.STATES[type][to];
+    const src = C.kicksForGuideline(type, rot, to);
+    for (let i = 0; i < src.length; i++) {
+      const nx = x + src[i][0], ny = y + src[i][1];
+      if (!C.collides(b, m, nx, ny)) return { rot: to, x: nx, y: ny, kick: i };
+    }
+    return null;
+  }
+  for (let t = 0; t < 3000; t++) {
+    const b = C.createBoard();
+    for (let y = 15; y < C.ROWS; y++) for (let x = 0; x < C.COLS; x++) if (rnd() < 0.6) b[y][x] = 'J';
+    if (b.some(function (r) { return r.every(Boolean); })) continue;
+    const type = C.TYPES[Math.floor(rnd() * 7)];
+    if (type === 'O') continue;
+    const rot = Math.floor(rnd() * 4), x = Math.floor(rnd() * 10);
+    let y = -2;
+    while (!C.collides(b, C.STATES[type][rot], x, y + 1)) y++;
+    if (C.collides(b, C.STATES[type][rot], x, y)) continue;
+    const dir = rnd() < 0.5 ? 1 : -1;
+    const eng = C.kicksFor ? (function () {          // 엔진과 같은 방식으로(변환 후 테이블로)
+      const to = (rot + (dir > 0 ? 1 : 3)) % 4, m = C.STATES[type][to], tb = C.kicksFor(type, rot, to);
+      for (let i = 0; i < tb.length; i++) if (!C.collides(b, m, x + tb[i][0], y + tb[i][1])) return { rot: to, x: x + tb[i][0], y: y + tb[i][1], kick: i };
+      return null;
+    })() : null;
+    const ref = refRotate(b, type, rot, x, y, dir);
+    n++;
+    if (JSON.stringify(eng) !== JSON.stringify(ref)) bad++;
+    if (eng && eng.kick > 0) kickUsed++;
+    if (JSON.stringify(eng) !== JSON.stringify(naiveRotate(b, type, rot, x, y, dir))) differingFromNaive++;
+  }
+  ok('무작위 ' + n + '회전: 엔진 == 참조 구현', bad === 0, bad + '건 불일치');
+  ok('실제로 킥이 발동한 사례가 충분히 있다', kickUsed > 100, kickUsed);
+  ok('부호 변환을 빼먹으면 결과가 달라진다(=이 검사가 의미 있다)', differingFromNaive > 0, differingFromNaive);
+})();
+
+console.log('\n[SRS 고정 픽스처 — 위로 뚫는 킥]');
+(function () {
+  /* 17  . . . # . . . . . #
+     18  . . . . . . # # # .
+     19  . . . . # . # . . .
+     T(rot0) 가 x=5, y=16 에 앉아 있다(아래 (6,18) 에 닿음). 반시계 회전 0→L: */
+  const b = C.createBoard();
+  b[17][3] = 'J'; b[17][9] = 'J';
+  b[18][6] = 'J'; b[18][7] = 'J'; b[18][8] = 'J';
+  b[19][4] = 'J'; b[19][6] = 'J';
+  const tb = C.kicksFor('T', 0, 3);
+  const got = (function () {
+    const m = C.STATES.T[3];
+    for (let i = 0; i < tb.length; i++) if (!C.collides(b, m, 5 + tb[i][0], 16 + tb[i][1])) return { x: 5 + tb[i][0], y: 16 + tb[i][1], kick: i };
+    return null;
+  })();
+  /* 가이드라인: test2 (+1,0)→오른쪽은 (6,18) 에 막히고, test3 (+1,+1)=**오른쪽 1칸 위** 가 통과 → (6,15) */
+  ok('공식 해석대로 test#3(오른쪽+위 1칸) 에서 착지', got && got.x === 6 && got.y === 15 && got.kick === 2, JSON.stringify(got));
+  ok('부호 오류(r1)라면 test#4를 "2칸 위"로 써 (5,14) 에 앉는다', (function () {
+    const m = C.STATES.T[3], src = C.kicksForGuideline('T', 0, 3);
+    for (let i = 0; i < src.length; i++) if (!C.collides(b, m, 5 + src[i][0], 16 + src[i][1])) return src[i][1] !== 0 && (16 + src[i][1]) === 14;
+    return false;
+  })(), 'r1 동작이 실제로 달랐음을 확인');
+})();
+
 console.log('\n[중력]');
 ok(C.gravityFor(1) > C.gravityFor(5) && C.gravityFor(5) > C.gravityFor(10), '레벨↑ = 낙하↑');
 

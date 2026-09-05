@@ -153,7 +153,7 @@ ok('시드 교체 → 결과 불일치', ws.engine.boardHash() !== rep.hash);
 ok('해시로 시드 검증 가능', ws.engine.sequenceHash() !== EN.create({ seed: rep.seed }).sequenceHash());
 
 /* ---------- 7. T-스핀 — 가이드라인 판정 (규칙 r1) ---------- */
-group('T-스핀 — 회전으로만 진입해야 인정 (r1)');
+group('T-스핀 — 회전으로만 진입해야 인정');
 /** TSD 픽스처:
  *   row17  # . . . . . . . . .      ← 오버행
  *   row18  . . . _ _ _ . . . .      ← 조각이 채울 자리
@@ -219,7 +219,7 @@ ok('코너 2개 이하면 노스핀', C.tspinKind(b5b, { type: 'T', x: 3, y: 17,
   C.tspinKind(b5b, { type: 'T', x: 3, y: 17, rot: 1 }, 0));
 
 /* ---------- 8. 규칙 버전 ---------- */
-group('규칙 버전(r1)이 리플레이에 박힌다');
+group('규칙 버전이 리플레이에 박힌다');
 const repV = AI.run({ seed: 'rules-ver', preset: 'human', rng: AI.makeRand('rv') });
 ok('pack 된 리플레이에 규칙 버전', RP.unpack(RP.pack(repV)).rules === EN.RULES_ID, RP.unpack(RP.pack(repV)).rules);
 ok('규칙이 다르면 digest 도 다르다',

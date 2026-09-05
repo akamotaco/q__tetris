@@ -438,7 +438,7 @@ async function waitForTarget() {
   await cmd('Emulation.clearDeviceMetricsOverride');
 
   console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');
-  const RULES_EXPECT = 'r1';
+  const RULES_EXPECT = 'r2';   // engine.js RULES_ID 를 올리면 여기 도 올린다(일부러 하드코딩: unnoticed 로 넘기지 못 있게)
   const startPath = JSON.parse(await evalJS(`(async () => {
     const out = { err: null, meta: null };
     try {
@@ -450,7 +450,7 @@ async function waitForTarget() {
   })()`, true));
   console.log('   ', startPath.err ? ('EX: ' + startPath.err) : startPath.meta);
   if (startPath.err) errors.push('START: ' + startPath.err);
-  if (!startPath.meta || startPath.meta.rules !== RULES_EXPECT) errors.push('START: 녹화 메타에 규칙 버전 없음');
+  if (!startPath.meta || startPath.meta.rules !== RULES_EXPECT) errors.push('START: 녹화 메타 규칙 버전이 예상과 다름 → ' + (startPath.meta && startPath.meta.rules) + ' (기대 ' + RULES_EXPECT + ')');
 
   console.log('\n[8] 스크린샷 저장');
   await cmd('Emulation.setDeviceMetricsOverride', { width: 400, height: 780, deviceScaleFactor: 2, mobile: true });
