@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEON TETRIS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23070a14'/><rect x='13' y='4' width='7' height='7' rx='2' fill='%23ffd83d'/><rect x='6' y='12' width='7' height='7' rx='2' fill='%23c05bff'/><rect x='13' y='12' width='7' height='7' rx='2' fill='%2335e5f5'/><rect x='20' y='12' width='7' height='7' rx='2' fill='%23ff5c7a'/><rect x='13' y='20' width='7' height='7' rx='2' fill='%233ee08f'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+  <div class="grid-overlay"></div>
+</div>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <h1 class="logo">NEON<span>TETRIS</span></h1>
+      <p class="tagline">srs · t-spin · hold · back-to-back</p>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="pauseBtn" title="일시정지 (P)">❙❙</button>
+      <button class="icon-btn" id="restartBtn" title="재시작 (R)">↻</button>
+      <button class="icon-btn" id="muteBtn" title="소리 (M)">♪</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT -->
+    <aside class="panel side left">
+      <section class="card" id="holdCard">
+        <div class="card-head"><span>HOLD</span><kbd>C</kbd></div>
+        <canvas id="hold" class="preview"></canvas>
+      </section>
+
+      <section class="card stats">
+        <div class="card-head"><span>STATS</span></div>
+        <dl>
+          <div><dt>시간</dt><dd id="statTime">0:00</dd></div>
+          <div><dt>조각</dt><dd id="statPieces">0</dd></div>
+          <div><dt>줄 / 분</dt><dd id="statLpm">0.0</dd></div>
+          <div><dt>점수 / 초</dt><dd id="statAps">0</dd></div>
+          <div><dt>테트리스</dt><dd id="statTetris">0</dd></div>
+          <div><dt>T-스핀</dt><dd id="statTspin">0</dd></div>
+        </dl>
+      </section>
+    </aside>
+
+    <!-- BOARD -->
+    <div class="stage-slot">
+    <section class="stage" id="stage">
+      <canvas id="board"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="ov-inner">
+          <div class="ov-title" id="ovTitle">NEON TETRIS</div>
+          <div class="ov-sub" id="ovSub">시작해서 줄을 쌓아보세요</div>
+          <div class="ov-stats" id="ovStats"></div>
+          <button class="btn" id="ovBtn">START</button>
+          <div class="ov-hint">ENTER 시작 · P 일시정지 · R 재시작</div>
+        </div>
+      </div>
+    </section>
+    </div>
+
+    <!-- RIGHT -->
+    <aside class="panel side right">
+      <section class="card">
+        <div class="card-head"><span>NEXT</span></div>
+        <div id="nextWrap"></div>
+      </section>
+
+      <section class="card score-card">
+        <div class="card-head"><span>SCORE</span></div>
+        <div class="big-num" id="score">0</div>
+        <div class="mini-row">
+          <div class="mini"><span>LEVEL</span><b id="level">1</b></div>
+          <div class="mini"><span>LINES</span><b id="lines">0</b></div>
+        </div>
+        <div class="mini-row">
+          <div class="mini wide"><span>BEST</span><b id="high">0</b></div>
+        </div>
+        <div class="chips" id="chips"></div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="keys" id="keys">
+    <span><kbd>←</kbd><kbd>→</kbd> 이동</span>
+    <span><kbd>↓</kbd> 소프트 드롭</span>
+    <span><kbd>Space</kbd> 하드 드롭</span>
+    <span><kbd>↑</kbd><kbd>X</kbd> 회전</span>
+    <span><kbd>Z</kbd> 역회전</span>
+    <span><kbd>A</kbd> 180°</span>
+    <span><kbd>C</kbd> 홀드</span>
+    <span><kbd>P</kbd> 일시정지</span>
+    <span><kbd>R</kbd> 재시작</span>
+    <span><kbd>M</kbd> 소리</span>
+  </footer>
+
+  <div class="touch" id="touch"></div>
+</div>
+
+<script src="core.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
