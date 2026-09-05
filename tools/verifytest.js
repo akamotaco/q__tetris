@@ -234,9 +234,13 @@ async function playAndSubmit(me, opt) {
   ok('스프린트는 시간 축 순위', sp1.submit.json.rank === 1);
   const sp2 = await playAndSubmit(rival, { mode: 'sprint', preset: 'casual', ip: '211.1.1.31' });
   ok('느린 스프린트 2위', sp2.submit.json.rank === 2, sp2.submit.json.rank);
+  const sp3 = await playAndSubmit(hero, { mode: 'sprint', preset: 'bot', ip: '211.1.1.32' });
+  ok('더 빠른 스프린트가 1위 탈취', sp3.submit.json.rank === 1 && sp3.rep.ticks < sp1.rep.ticks, [sp1.rep.ticks, sp3.rep.ticks]);
   const hb = await api('GET', '/api/board?mode=sprint&level=1');
   ok('보드 정렬 = 시간 오름차순', hb.json.list[0].ticks < hb.json.list[1].ticks, hb.json.list.map(r => r.ticks));
   ok('1위 유지 기록됨', !!hb.json.hold.current, hb.json.hold);
+  ok('밀려난 1위도 이력으로 남는다 (삭제 없음)', hb.json.hold.past.length >= 1 && hb.json.hold.past[0].held_ms > 0, hb.json.hold.past);
+  ok('해당 기록 쪽에서도 유지 기간이 보인다', DB.holdForRun(DB.getRunByShare(sp1.submit.json.share).id).length >= 1);
 
   DB.snapshot(10);
   const pk = DB.periodKeys(DB.now());

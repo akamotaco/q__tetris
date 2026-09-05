@@ -63,8 +63,16 @@ function baseUrl(req) {
   const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
   return proto + '://' + host;
 }
+const BASE_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'SAMEORIGIN',
+  /* 인라인 스크립트/서드파티 없음 — 이름 필드가 들어와도 실행될 자리를 없앤다 */
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'self'; frame-ancestors 'self'; form-action 'none'",
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+};
 function send(res, code, body, headers) {
-  const h = Object.assign({ 'X-Content-Type-Options': 'nosniff' }, headers || {});
+  const h = Object.assign({}, BASE_HEADERS, headers || {});
   res.writeHead(code, h);
   res.end(body);
 }

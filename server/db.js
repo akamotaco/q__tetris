@@ -84,10 +84,12 @@ CREATE TABLE IF NOT EXISTS rank_events (      -- 순위 변동 이력 (삭제 �
 CREATE INDEX IF NOT EXISTS ix_re_board ON rank_events(board, at DESC);
 CREATE INDEX IF NOT EXISTS ix_re_run   ON rank_events(run_id);
 
-CREATE TABLE IF NOT EXISTS rank_hold (        -- 1위 유지 시간 (진행중 → 마감)
-  board TEXT PRIMARY KEY, run_id INTEGER NOT NULL, since INTEGER NOT NULL, until_ms INTEGER
+CREATE TABLE IF NOT EXISTS rank_hold (        -- 1위 유지 시간 (진행중 → 마감). 보드당 여러 행 = 이력 전체 보존
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  board TEXT NOT NULL, run_id INTEGER NOT NULL, since INTEGER NOT NULL, until_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_hold_run ON rank_hold(run_id);
+CREATE INDEX IF NOT EXISTS ix_hold_board ON rank_hold(board, until_ms);
 
 CREATE TABLE IF NOT EXISTS board_snap (       -- 1시간 스냅샷 → 기간 필터/명예의 전당
   taken_at INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL,
@@ -116,6 +118,22 @@ CREATE TABLE IF NOT EXISTS bans (
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 `);
+
+/* 구 버전 마이그레이션: rank_hold 가 보드당 1행이던 스키마는 밀려난 1위 이력을 덮어써서 잃었다 */
+(function migrate() {
+  const cols = db.prepare('PRAGMA table_info(rank_hold)').all().map(c => c.name);
+  if (cols.length && cols.indexOf('id') < 0) {
+    console.log('[migrate] rank_hold 를 이력 테이블로 변환');
+    db.exec(`CREATE TABLE rank_hold_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      board TEXT NOT NULL, run_id INTEGER NOT NULL, since INTEGER NOT NULL, until_ms INTEGER);
+      INSERT INTO rank_hold_new(board, run_id, since, until_ms) SELECT board, run_id, since, until_ms FROM rank_hold;
+      DROP TABLE rank_hold;
+      ALTER TABLE rank_hold_new RENAME TO rank_hold;
+      CREATE INDEX IF NOT EXISTS ix_hold_run ON rank_hold(run_id);
+      CREATE INDEX IF NOT EXISTS ix_hold_board ON rank_hold(board, until_ms);`);
+  }
+})();
 
 /* ================= 유틸 ================= */
 const now = () => Date.now();
@@ -288,10 +306,10 @@ function registerRun(row, meta) {
               VALUES (?,?,?,?,?,?,?,?,?)`).run(full.board, id, rank, metric, 'submit', null, null, null, now());
 
   if (rank === 1) {
-    const open = db.prepare('SELECT * FROM rank_hold WHERE board = ?').get(full.board);
+    const open = db.prepare('SELECT * FROM rank_hold WHERE board = ? AND until_ms IS NULL').get(full.board);
     const beaten = open && open.run_id !== id ? db.prepare('SELECT * FROM runs WHERE id = ?').get(open.run_id) : null;
     if (open) db.prepare('UPDATE rank_hold SET until_ms = ? WHERE board = ? AND until_ms IS NULL').run(now(), full.board);
-    db.prepare('INSERT OR REPLACE INTO rank_hold(board, run_id, since) VALUES (?,?,?)').run(full.board, id, now());
+    db.prepare('INSERT INTO rank_hold(board, run_id, since) VALUES (?,?,?)').run(full.board, id, now());
     db.prepare(`INSERT INTO rank_events(board, run_id, rank, metric, kind, beat_run_id, beat_score, gap, at)
                 VALUES (?,?,?,?,?,?,?,?,?)`).run(full.board, id, 1, metric, 'top1',
       beaten ? beaten.id : null, beaten ? beaten.score : null,
@@ -411,10 +429,10 @@ function periodList(board) {
 }
 /** 1위 유지 시간 — 진행중/마감 모두. 밀려난 뒤에도 이력은 남는다 */
 function holdInfo(board) {
-  const cur = db.prepare('SELECT rh.*, r.share, r.score, r.ticks, r.fp FROM rank_hold rh JOIN runs r ON r.id = rh.run_id WHERE rh.board = ?').get(board);
+  const cur = db.prepare('SELECT rh.*, r.share, r.score, r.ticks, r.fp FROM rank_hold rh JOIN runs r ON r.id = rh.run_id WHERE rh.board = ? AND rh.until_ms IS NULL').get(board);
   return {
     current: cur || null,
-    past: db.prepare(`SELECT rh.run_id, rh.since, rh.until_ms, r.share, r.score, r.ticks, r.fp, r.status
+    past: db.prepare(`SELECT rh.run_id, rh.since, rh.until_ms, rh.until_ms - rh.since AS held_ms, r.share, r.score, r.ticks, r.fp, r.status
                       FROM rank_hold rh JOIN runs r ON r.id = rh.run_id
                       WHERE rh.board = ? AND rh.until_ms IS NOT NULL
                       ORDER BY rh.until_ms DESC LIMIT 20`).all(board),

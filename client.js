@@ -291,11 +291,13 @@
     out.innerHTML = statusLine + rank +
       '<div class="share">' +
       '<label>' + esc(L.t('submit.share')) + '</label>' +
-      '<input readonly value="' + esc(url) + '" onclick="this.select()">' +
+      '<input readonly value="' + esc(url) + '" id="shareUrl"' +
       '<button class="btn tiny" id="copyBtn">' + esc(L.t('submit.copy')) + '</button>' +
       '</div>' +
       '<div class="sb-act"><button class="btn primary" id="watchBtn">' + esc(L.t('submit.watch')) + '</button>' +
       '<button class="btn ghost" id="againBtn">' + esc(L.t('ui.retry')) + '</button></div>';
+    const su = $('shareUrl');
+    if (su) su.addEventListener('click', function () { su.select(); });
     const cp = $('copyBtn');
     if (cp) cp.addEventListener('click', async function () {
       try {
@@ -320,16 +322,19 @@
     if (!bar) return;
     const d = play.data || {};
     const who = d.displayName || d.codename || L.t('board.anon');
+    const heldMs = (d.hold || []).reduce(function (a, h) { return a + ((h.until_ms || Date.now()) - h.since); }, 0);
     bar.classList.remove('hidden');
     bar.innerHTML =
       '<div class="rp-head"><b>' + esc(L.t('replay.title')) + '</b>' +
       '<span>' + esc(L.t('replay.by', { who: who })) + ' · ' + (d.score || 0).toLocaleString() +
       ' · ' + (d.lines || 0) + 'L · ' + fmtTime(d.ticks || 0) +
-      (d.rank && d.rank.atSubmit ? ' · ' + esc(L.t('board.topAt', { rank: d.rank.atSubmit })) : '') + '</span>' +
+      (d.rank && d.rank.atSubmit ? ' · ' + esc(L.t('board.topAt', { rank: d.rank.atSubmit })) : '') +
+      (heldMs > 60000 ? ' · ' + esc(L.t('board.hold1', { time: fmtDur(heldMs) })) : '') + '</span>' +
       (who ? '' : '') +
       '<span class="grow"></span>' +
       (d.mode !== 'marathon' || d.level > 1 ? '<span class="tag">' + esc(d.mode) + (d.level > 1 ? ' Lv' + d.level : '') + (d.g20 ? ' 20G' : '') + '</span>' : '') +
       '<button class="btn tiny" id="rpChal">' + esc(L.t('replay.challenge')) + '</button>' +
+      (d.fp && me && d.fp === me.fp ? '<button class="btn tiny ghost" id="rpHide">목록에서 숨기기</button>' : '') +
       '<button class="btn tiny ghost" id="rpExit">' + esc(L.t('replay.exit')) + '</button></div>' +
       '<div class="rp-ctrl">' +
       '<span>' + esc(L.t('replay.speed')) + '</span>' +
@@ -348,6 +353,16 @@
     const back = $('rpBack'); if (back) back.addEventListener('click', cbs.onRestart);
     const exit = $('rpExit'); if (exit) exit.addEventListener('click', cbs.onExit);
     const chal = $('rpChal'); if (chal) chal.addEventListener('click', function () { location.href = '/?challenge=' + play.share; });
+    const hide = $('rpHide');
+    if (hide) hide.addEventListener('click', async function () {
+      const nonce = 'h' + Date.now();
+      hide.disabled = true;
+      const r = await req('POST', '/api/hide/' + play.share, {
+        fp: me.fp, nonce: nonce, owner: { jwk: me.jwk, sig: await sign(payloadOf('NTHIDE1', [play.share, nonce])) },
+      });
+      toast((r.json && (r.json.note || r.json.error)) || L.t('err.network'));
+      if (r.status !== 200) hide.disabled = false;
+    });
     const track = $('rpTrack');
     if (track) track.addEventListener('click', function (e) {
       const r = track.getBoundingClientRect();
@@ -465,6 +480,12 @@
       hl.style.display = hold ? '' : 'none';
     }
   };
+  function fmtDur(ms) {
+    const m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (d > 0) return d + 'd ' + (h % 24) + 'h';
+    if (h > 0) return h + 'h ' + (m % 60) + 'm';
+    return m + 'm';
+  }
   function fmtShort(ms) {
     const m = Math.floor(ms / 60000);
     if (m < 60) return m + 'm';
