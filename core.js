@@ -112,17 +112,25 @@
     return table[from + '>' + to] || [[0, 0]];
   }
 
-  /* ---- 보드 ---- */
+  /* ---- 보드 ----
+     가이드라인의 놀이필드는 보이는 20행 위에 **조각이 스폰/정리되는 숨은 버퍼 행**이 있다.
+     그래서 이 배열은 HEIGHT(=BUFFER+ROWS) 행이고, **보이는 행은 TOP 번지부터**다.
+     배열 위쪽(y<0)은 천장으로 막았다 — 버퍼 위로 조각이 사라져버리면 저장할 곳이 없어 검증이 깨진다.
+     보드 해시·재시뮬도 이 배열 전체를 쓰므로 결정론은 그대로다. */
+  const BUFFER = 4;
+  const HEIGHT = ROWS + BUFFER;
+  const TOP = BUFFER;                 // 보이는 첫 행의 배열 인덱스
+  const row = function (visibleY) { return TOP + visibleY; };   // 보이는 행(0~19) → 배열 인덱스
+
   function createBoard() {
     const b = [];
-    for (let y = 0; y < ROWS; y++) b.push(new Array(COLS).fill(null));
+    for (let y = 0; y < HEIGHT; y++) b.push(new Array(COLS).fill(null));
     return b;
   }
 
-  /** 칸이 채워져 있는지 (범위 밖 좌/우/하단 = 벽, 상단 열림) */
+  /** 칸이 채워져 있는지 (범위 밖 좌/우/하단 = 벽, 버퍼 위쪽 = 천장) */
   function isSolid(board, x, y) {
-    if (x < 0 || x >= COLS || y >= ROWS) return true;
-    if (y < 0) return false;
+    if (x < 0 || x >= COLS || y >= HEIGHT || y < 0) return true;
     return !!board[y][x];
   }
 
@@ -153,14 +161,14 @@
         if (!m[y][x]) continue;
         const by = piece.y + y;
         const bx = piece.x + x;
-        if (by >= 0 && by < ROWS && bx >= 0 && bx < COLS) board[by][bx] = piece.type;
+        if (by >= 0 && by < HEIGHT && bx >= 0 && bx < COLS) board[by][bx] = piece.type;
       }
     }
   }
 
   function fullRows(board) {
     const rows = [];
-    for (let y = 0; y < ROWS; y++) {
+    for (let y = 0; y < HEIGHT; y++) {
       if (board[y].every(function (c) { return !!c; })) rows.push(y);
     }
     return rows;
@@ -170,24 +178,26 @@
     const set = {};
     rows.forEach(function (r) { set[r] = true; });
     const kept = [];
-    for (let y = 0; y < ROWS; y++) if (!set[y]) kept.push(board[y]);
-    while (kept.length < ROWS) kept.unshift(new Array(COLS).fill(null));
-    for (let y = 0; y < ROWS; y++) board[y] = kept[y];
+    for (let y = 0; y < HEIGHT; y++) if (!set[y]) kept.push(board[y]);
+    while (kept.length < HEIGHT) kept.unshift(new Array(COLS).fill(null));
+    for (let y = 0; y < HEIGHT; y++) board[y] = kept[y];
     return board;
   }
 
+  /* "보드가 비었다"는 **보이는 영역** 기준이다. 퍼펙트 클리어 판정도 "보이는 판 20행이 비었나" 다.
+     버퍼에 블록이 남아 있다면 그건 다음에 떨어져 내려올 중이니 비었다로 친다. */
   function isEmptyBoard(board) {
-    for (let y = 0; y < ROWS; y++) {
+    for (let y = TOP; y < HEIGHT; y++) {
       for (let x = 0; x < COLS; x++) if (board[y][x]) return false;
     }
     return true;
   }
 
-  /** 행을 제거했을 때 보드가 비게 되는지 (퍼펙트 클리어 예측) */
+  /** 행을 제거했을 때 보이는 영역이 비게 되는지 (퍼펙트 클리어 예측) */
   function wouldBePerfect(board, rows) {
     const set = {};
     rows.forEach(function (r) { set[r] = true; });
-    for (let y = 0; y < ROWS; y++) {
+    for (let y = TOP; y < HEIGHT; y++) {
       if (set[y]) continue;
       for (let x = 0; x < COLS; x++) if (board[y][x]) return false;
     }
@@ -295,6 +305,10 @@
   return {
     COLS: COLS,
     ROWS: ROWS,
+    BUFFER: BUFFER,
+    HEIGHT: HEIGHT,
+    TOP: TOP,
+    row: row,
     TYPES: TYPES,
     COLORS: COLORS,
     BASE: BASE,

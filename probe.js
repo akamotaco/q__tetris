@@ -109,6 +109,7 @@ async function waitForTarget() {
   console.log('\n[2] 엔진 테스트 (디버그 API)');
   const eng = await evalJS(`(async function(){
     const D = window.TetrisDebug, G = D.G;
+    const T = window.TetrisCore.TOP;                 // 보드 배열은 버퍼 C.TOP 행을 앞에 둔다 (y 는 배열 인덱스)
     const sleep = ms => new Promise(r=>setTimeout(r, ms));
     const num = id => parseInt(document.getElementById(id).textContent.replace(/[^0-9]/g,''),10) || 0;
     const out = {checks: []};
@@ -136,7 +137,7 @@ async function waitForTarget() {
     /* 1) 줄 삭제 + 레벨업 */
     await D.start();
     G.lines = 9; G.level = 1;
-    for (let x=0;x<10;x++) if (x<3 || x>6) G.board[19][x] = 'J'; /* 열 3~6 비움 (I 는 가로 4칸) */
+    for (let x=0;x<10;x++) if (x<3 || x>6) G.board[T+19][x] = 'J'; /* 열 3~6 비움 (I 는 가로 4칸) */
     G.piece = null; D.spawn('I');
     G.piece.rot = 0; G.piece.x = 3; G.piece.y = 0; /* I 매트릭스는 4열 전체 사용 → x=3 이어야 열 3,4,5 */
     D.hardDrop();
@@ -145,14 +146,14 @@ async function waitForTarget() {
     chk('1줄 삭제', num('lines') === 10, 'lines=' + num('lines'));
     chk('레벨 2로 상승', num('level') === 2, 'level='+num('level'));
     chk('점수 반영(100 이상)', num('score') >= 100, 'score='+num('score'));
-    chk('삭제 후 해당 행 비움', G.board[19].filter(Boolean).length === 0, G.board[19].filter(Boolean).length);
+    chk('삭제 후 해당 행 비움', G.board[T+19].filter(Boolean).length === 0, G.board[T+19].filter(Boolean).length);
 
     /* 2) T-스핀 더블 */
     await D.start();
-    for (let x=0;x<10;x++){ G.board[19][x]='J'; G.board[18][x]='J'; }
-    G.board[19][4]=null; G.board[18][3]=G.board[18][4]=G.board[18][5]=null; G.board[17][3]='J';
+    for (let x=0;x<10;x++){ G.board[T+19][x]='J'; G.board[T+18][x]='J'; }
+    G.board[T+19][4]=null; G.board[T+18][3]=G.board[T+18][4]=G.board[T+18][5]=null; G.board[T+17][3]='J';
     G.piece=null; D.spawn('T');
-    G.piece.x=3; G.piece.y=17; G.piece.rot=2; G.spinFlag=true; G.lastKick=0;
+    G.piece.x=3; G.piece.y=T+17; G.piece.rot=2; G.spinFlag=true; G.lastKick=0;
     D.lockPiece();
     await settle(() => G.lines === 2 && G.state !== 'clearing');
     await sleep(80);
@@ -191,7 +192,7 @@ async function waitForTarget() {
 
     /* 6) 게임 오버 (인위적 상단 충전) */
     await D.start();
-    for (let y=0;y<20;y++) for (let x=0;x<10;x++) G.board[y][x] = 'J';
+    for (let y=T;y<T+20;y++) for (let x=0;x<10;x++) G.board[y][x] = 'J';   // 보이는 판을 가득 채운다
     G.piece = null; D.spawn('O');
     chk('스폰 자리 막힘 → 게임오버', G.state === 'over', G.state);
     chk('게임오버 오버레이', !document.getElementById('overlay').classList.contains('hidden'));
@@ -271,12 +272,13 @@ async function waitForTarget() {
     const sleep = ms => new Promise(r=>setTimeout(r, ms));
     const num = id => parseInt(document.getElementById(id).textContent.replace(/[^0-9]/g,''),10) || 0;
     await D.start();
+    const T = C.TOP;
     function cost(b){
       let holes=0, bump=0, agg=0, maxH=0; const hs=[];
-      for (let x=0;x<10;x++){ let top=0; while(top<20 && !b[top][x]) top++; hs[x]=20-top; agg+=hs[x]; maxH=Math.max(maxH,hs[x]);
-        for (let y=top;y<20;y++) if(!b[y][x]) holes++; }
+      for (let x=0;x<10;x++){ let top=0; while(top<20 && !b[T+top][x]) top++; hs[x]=20-top; agg+=hs[x]; maxH=Math.max(maxH,hs[x]);
+        for (let y=top;y<20;y++) if(!b[T+y][x]) holes++; }
       for (let x=0;x<9;x++) bump += Math.abs(hs[x]-hs[x+1]);
-      let cleared=0; for (let y=0;y<20;y++) if (b[y].every(Boolean)) cleared++;
+      let cleared=0; for (let y=T;y<T+20;y++) if (b[y].every(Boolean)) cleared++;
       return agg*0.5 + holes*4.2 + bump*0.6 + maxH*0.35 - cleared*3.2;
     }
     function best(){
@@ -285,8 +287,8 @@ async function waitForTarget() {
         const m = C.STATES[G.piece.type][r];
         for (let x=-3;x<10;x++){
           const b = G.board.map(row=>row.slice());
-          if (C.collides(b, m, x, -2)) continue;
-          let y=-2;
+          if (C.collides(b, m, x, 0)) continue;
+          let y=0;
           while(!C.collides(b, m, x, y+1)) y++;
           let ok=true;
           for (let i=0;i<m.length;i++) for (let j=0;j<m[i].length;j++) if (m[i][j]){
@@ -438,7 +440,7 @@ async function waitForTarget() {
   await cmd('Emulation.clearDeviceMetricsOverride');
 
   console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');
-  const RULES_EXPECT = 'r2';   // engine.js RULES_ID 를 올리면 여기 도 올린다(일부러 하드코딩: unnoticed 로 넘기지 못 있게)
+  const RULES_EXPECT = 'r3';   // engine.js RULES_ID 를 올리면 여기 도 올린다(일부러 하드코딩: unnoticed 로 넘기지 못 있게)
   const startPath = JSON.parse(await evalJS(`(async () => {
     const out = { err: null, meta: null };
     try {

@@ -152,8 +152,10 @@ const ws = EN.simulate(wrongSeed);
 ok('시드 교체 → 결과 불일치', ws.engine.boardHash() !== rep.hash);
 ok('해시로 시드 검증 가능', ws.engine.sequenceHash() !== EN.create({ seed: rep.seed }).sequenceHash());
 
-/* ---------- 7. T-스핀 — 가이드라인 판정 (규칙 r1) ---------- */
+/* ---------- 7. T-스핀 — 가이드라인 판정 ---------- */
 group('T-스핀 — 회전으로만 진입해야 인정');
+/* 아래 픽스처의 행 번호는 **보이는 행(0~19)** 이다. 배열 인덱스로 바꾸려면 C.row(y). */
+const R = C.row;
 /** TSD 픽스처:
  *   row17  # . . . . . . . . .      ← 오버행
  *   row18  . . . _ _ _ . . . .      ← 조각이 채울 자리
@@ -162,10 +164,10 @@ group('T-스핀 — 회전으로만 진입해야 인정');
 function tsdBoard() {
   const b = C.createBoard();
   for (let x = 0; x < 10; x++) {
-    if (x !== 4) b[19][x] = 'J';
-    if (x !== 3 && x !== 4 && x !== 5) b[18][x] = 'J';
+    if (x !== 4) b[R(19)][x] = 'J';
+    if (x !== 3 && x !== 4 && x !== 5) b[R(18)][x] = 'J';
   }
-  b[17][3] = 'J';
+  b[R(17)][3] = 'J';
   return b;
 }
 function putT(seed) {
@@ -177,30 +179,30 @@ function putT(seed) {
 const settle = (et) => { for (let i = 0; i < EN.CLEAR_TICKS + 4; i++) et.tick(); };
 
 let et = putT('tsd-spin');
-et.piece.rot = 1; et.piece.x = 3; et.piece.y = 17;                 //회전 전 상태(접지 확인됨)
-ok('회전 전에는 그 자리에 닿아 있다(회전이 유일한 진입 수단)', C.collides(et.board, C.STATES.T[1], 3, 18));
+et.piece.rot = 1; et.piece.x = 3; et.piece.y = R(17);                 //회전 전 상태(접지 확인됨)
+ok('회전 전에는 그 자리에 닿아 있다(회전이 유일한 진입 수단)', C.collides(et.board, C.STATES.T[1], 3, R(18)));
 ok('회전 성공', et.rotate(1) === true);
 et.lockPiece(); settle(et);
 ok('회전으로 진입 → T-스핀 인정', et.tspins === 1, et.tspins);
 ok('T-스핀 더블 = 2줄 / 1200점', et.lines === 2 && et.score === 1200, et.lines + '/' + et.score);
 
 et = putT('tsd-nosin');
-et.piece.rot = 2; et.piece.x = 3; et.piece.y = 17; et.lockPiece(); settle(et);   //그냥 놓기
+et.piece.rot = 2; et.piece.x = 3; et.piece.y = R(17); et.lockPiece(); settle(et);   //그냥 놓기
 ok('회전 없이 같은 자리 → 일반 더블(300점)', et.tspins === 0 && et.score === 300, et.tspins + '/' + et.score);
 
 et = putT('tsd-inplace');
-et.piece.rot = 1; et.piece.x = 3; et.piece.y = 17; et.rotate(1); et.hardDrop(); settle(et);
+et.piece.rot = 1; et.piece.x = 3; et.piece.y = R(17); et.rotate(1); et.hardDrop(); settle(et);
 ok('회전 후 제자리 하드 드롭(이동 0)은 스핀 유지', et.tspins === 1 && et.score === 1200, et.tspins + '/' + et.score);
 
 et = EN.create({ seed: 'drop-moves' }); et.piece = null; et.spawn('T');
 et.rotate(1);
 ok('회전 → 플래그', et.spinFlag === true);
 et.hardDrop();                                                   //먼 거리로 미끄러짐
-ok('하드 드롭으로 이동하면 마지막 동작이 회전이 아니다 → 스핀 해제 (r1)', et.spinFlag === false && et.tspins === 0, et.spinFlag + '/' + et.tspins);
+ok('하드 드롭으로 이동하면 마지막 동작이 회전이 아니다 → 스핀 해제', et.spinFlag === false && et.tspins === 0, et.spinFlag + '/' + et.tspins);
 ok('하드 드롭 점수(칸당 +2)는 그대로', et.score >= 30, et.score);
 
 et = putT('gravity');
-et.piece.rot = 2; et.piece.x = 3; et.piece.y = 10;
+et.piece.rot = 2; et.piece.x = 3; et.piece.y = R(10);
 let g2 = 0; while (et.pieces === 0 && g2++ < 400) et.tick();      //중력으로만 착지
 ok('중력 착지는 스핀이 아니다', et.tspins === 0, et.tspins);
 
@@ -208,15 +210,74 @@ ok('중력 착지는 스핀이 아니다', et.tspins === 0, et.tspins);
    rot1(nub 오른쪽) · x=3,y=17: 모서리 = (3,17)TL (5,17)TR (3,19)BL (5,19)BR, 앞면은 TR/BR.
    TL+BL+BR 이 차면 3코너인데 앞면은 BR 하나뿐 → mini. */
 const b5 = C.createBoard();
-b5[17][3] = 'J'; b5[19][3] = 'J'; b5[19][5] = 'J';
-ok('3코너 + 앞면 한쪽 = mini', C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 0) === 'mini',
-  C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 0));
-ok('같은 자리에서 5번째 킥이면 full 로 만회', C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 4) === 'full',
-  C.tspinKind(b5, { type: 'T', x: 3, y: 17, rot: 1 }, 4));
+b5[R(17)][3] = 'J'; b5[R(19)][3] = 'J'; b5[R(19)][5] = 'J';
+ok('3코너 + 앞면 한쪽 = mini', C.tspinKind(b5, { type: 'T', x: 3, y: R(17), rot: 1 }, 0) === 'mini',
+  C.tspinKind(b5, { type: 'T', x: 3, y: R(17), rot: 1 }, 0));
+ok('같은 자리에서 5번째 킥이면 full 로 만회', C.tspinKind(b5, { type: 'T', x: 3, y: R(17), rot: 1 }, 4) === 'full',
+  C.tspinKind(b5, { type: 'T', x: 3, y: R(17), rot: 1 }, 4));
 const b5b = C.createBoard();
-b5b[17][3] = 'J'; b5b[17][5] = 'J';
-ok('코너 2개 이하면 노스핀', C.tspinKind(b5b, { type: 'T', x: 3, y: 17, rot: 1 }, 0) === 'none',
-  C.tspinKind(b5b, { type: 'T', x: 3, y: 17, rot: 1 }, 0));
+b5b[R(17)][3] = 'J'; b5b[R(17)][5] = 'J';
+ok('코너 2개 이하면 노스핀', C.tspinKind(b5b, { type: 'T', x: 3, y: R(17), rot: 1 }, 0) === 'none',
+  C.tspinKind(b5b, { type: 'T', x: 3, y: R(17), rot: 1 }, 0));
+
+/* ---------- 7-b. 상단 버퍼 / 끝남 조건 / O 회전 (r3) ---------- */
+group('상단 버퍼와 끝남 조건 (r3)');
+/* 스폰은 보이는 판 맨 위(버퍼 안쪽) — 조각 전체가 보인다 */
+et = EN.create({ seed: 'spawn-below-buffer' });
+ok('스폰 y 는 버퍼 안쪽(배열 인덱스 ≥ 0)', et.piece.y >= 0 && et.piece.y <= C.TOP, et.piece.y);
+ok('스폰 조각의 맨 위 칸이 보이는 행 0 이상', C.cellsOf(et.piece.type, 0).every(cc => et.piece.y + cc[1] >= 0));
+
+/* 조각이 **일부만** 위에 걸린 채 잠기면 게임은 끝나지 않는다 (가이드라인 lock out) */
+et = EN.create({ seed: 'partial-above' });
+et.piece = null; et.spawn('I');
+et.piece.rot = 1; et.piece.x = 0; et.piece.y = C.TOP - 2;          // 세로 I: 2칸은 버퍼, 2칸은 보이는 판
+const icol = 0 + C.cellsOf('I', 1)[0][0];                           // 실제 점유 열(매트릭스 의존 회피)
+const visBefore = et.state;
+et.lockPiece();
+ok('일부만 위에 잠기면 종료 아니다', et.state === visBefore, et.state + '/' + et.overReason);
+ok('버퍼에 남은 블록이 배열에 실제로 저장된다', et.board[C.TOP - 2][icol] === 'I' && et.board[C.TOP - 1][icol] === 'I',
+  et.board[C.TOP - 2][icol] + '/' + et.board[C.TOP - 1][icol]);
+ok('보이는 판에도 같은 조각의 나머지가 보인다', et.board[C.TOP][icol] === 'I' && et.board[C.TOP + 1][icol] === 'I');
+
+/* 조각이 **전부** 위에 잠기면 끝난다. 스폰이 막히기 전에 조각을 직접 놓아 lock out 만 분리해 검사한다. */
+et = EN.create({ seed: 'all-above' });
+et.piece = null; et.spawn('T');
+et.piece.rot = 2; et.piece.x = 3; et.piece.y = C.TOP - 3;           // 점유 칸이 전부 버퍼 위쪽
+et.lockPiece();
+ok('조각이 전부 보이는 판 위에 잠기면 lock out → 종료', et.state === 'over' && et.overReason === 'topout', et.state + '/' + et.overReason);
+
+/* 보이는 판이 가득 차면 다음 스폰이 막혀 끝난다 (block out) */
+et = EN.create({ seed: 'block-out' });
+for (let y = C.TOP; y < C.HEIGHT; y++) for (let x = 0; x < 10; x++) et.board[y][x] = 'J';
+et.piece = null;
+ok('스폰이 막히면 block out → 종료', et.spawn('T') === false && et.overReason === 'topout', et.overReason);
+
+/* O 조각 회전은 성공한다 (가이드라인: O 에도 4개 상태가 있고 회전은 같은 자리를 가리킨다) */
+et = EN.create({ seed: 'o-rotate' });
+et.piece = null; et.spawn('O');
+const ox = et.piece.x, oy = et.piece.y, orot0 = et.piece.rot;
+ok('O 회전 성공', et.rotate(1) === true);
+ok('O 회전은 위치를 옮기지 않는다', et.piece.x === ox && et.piece.y === oy, et.piece.x + ',' + et.piece.y);
+ok('O 회전은 상태만 순환', et.piece.rot === (orot0 + 1) % 4, et.piece.rot);
+ok('O 는 T-스핀 판정과 무관', C.tspinKind(et.board, et.piece, 0) === 'none');
+/* 바닥에 붙인 O 를 회전 → lockResets 가 올라가야 한다 (회전이 성공으로 취급되어야 가능) */
+et.piece = null; et.spawn('O');
+let oy2 = 0; while (!C.collides(et.board, C.STATES.O[0], et.piece.x, oy2 + 1)) oy2++;
+et.piece.y = oy2;
+const r0 = et.lockResets;
+et.rotate(1);
+ok('O 회전도 락 딜레이를 리셋한다(성공으로 취급)', et.lockResets === r0 + 1, r0 + '→' + et.lockResets);
+
+/* 버퍼 천장: 배열 밖으로 올라가는 회전은 거부된다 */
+et = EN.create({ seed: 'ceiling' });
+ok('버퍼 안쪽 행은 열림', C.collides(et.board, C.STATES.I[0], 3, -1) === false);   // I 행 오프셋 1 → 칸은 행 0
+ok('천장 위(배열 밖)는 막힘', C.collides(et.board, C.STATES.I[0], 3, -2) === true); // 칸이 행 -1 로 나감
+
+/* 버퍼 블록은 줄 삭제 때 내려오고, 해시에 반영된다 */
+et = EN.create({ seed: 'hash-buffer' });
+const h0 = et.boardHash();
+et.board[0][0] = 'J';
+ok('버퍼 행의 블록도 보드 해시에 들어간다(재현 판정)', et.boardHash() !== h0);
 
 /* ---------- 8. 규칙 버전 ---------- */
 group('규칙 버전이 리플레이에 박힌다');

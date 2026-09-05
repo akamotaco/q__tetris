@@ -20,11 +20,12 @@
 
   const W = { height: -0.51, lines: 0.76, holes: -0.36, bump: -0.18, transit: -0.36, topOut: -1000 };
 
+  /* 지표는 **보이는 판** 기준으로만 계산한다 (버퍼 행은 "아직 내려오지 않은 곳"이라 높이/홀에 넣지 않는다). */
   function heightsOf(board) {
     const h = new Array(C.COLS).fill(0);
     for (let x = 0; x < C.COLS; x++) {
-      for (let y = 0; y < C.ROWS; y++) {
-        if (board[y][x]) { h[x] = C.ROWS - y; break; }
+      for (let y = C.TOP; y < C.HEIGHT; y++) {
+        if (board[y][x]) { h[x] = C.HEIGHT - y; break; }
       }
     }
     return h;
@@ -34,7 +35,7 @@
     let holes = 0;
     for (let x = 0; x < C.COLS; x++) {
       let seen = false;
-      for (let y = 0; y < C.ROWS; y++) {
+      for (let y = C.TOP; y < C.HEIGHT; y++) {
         if (board[y][x]) seen = true;
         else if (seen) holes++;
       }
@@ -50,18 +51,18 @@
       const rot = rots[ri];
       const m = C.STATES[type][rot];
       for (let x = -(m[0].length - 1); x <= C.COLS - 1; x++) {
-        let y = -C.ROWS;
+        let y = 0;                                    // 배열 맨 위(버퍼 천장 아래)에서 시작
         if (C.collides(board, m, x, y)) continue;
         while (!C.collides(board, m, x, y + 1)) y++;
         if (C.collides(board, m, x, y)) continue;          // 놓을 자리 없음
         const nb = board.map(function (r) { return r.slice(); });
-        let topped = false;
+        let floated = false;                          // 버퍼 천장 밖에 걸치는 자리 = 놓을 수 없다
         C.cellsOf(type, rot).forEach(function (c) {
           const by = y + c[1], bx = x + c[0];
-          if (by < 0) { topped = true; return; }
+          if (by < 0) { floated = true; return; }
           nb[by][bx] = type;
         });
-        if (topped) continue;
+        if (floated) continue;
         const rows = C.fullRows(nb);
         if (rows.length) C.removeRows(nb, rows);
         const h = heightsOf(nb);
@@ -70,7 +71,7 @@
         let transit = 0;
         for (let cx = 0; cx < C.COLS; cx++) {
           let on = false;
-          for (let cy = C.ROWS - 1; cy >= 0; cy--) {
+          for (let cy = C.HEIGHT - 1; cy >= C.TOP; cy--) {
             if (nb[cy][cx]) { if (on) transit++; } else on = false;
           }
         }

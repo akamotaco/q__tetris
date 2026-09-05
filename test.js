@@ -36,12 +36,15 @@ ok(oCols.join() === '4,5', 'O: 중앙 정렬 (열 4,5)');
 console.log('\n[충돌/월킥]');
 (function () {
   const b = C.createBoard();
-  for (let x = 0; x < C.COLS; x++) b[C.ROWS - 1][x] = 'J';
-  ok(C.collides(b, C.STATES.I[0], 3, 18), '바닥 접촉 감지');
-  ok(!C.collides(b, C.STATES.I[0], 3, 16), '바닥 여유 있으면 통과');
+  for (let x = 0; x < C.COLS; x++) b[C.HEIGHT - 1][x] = 'J';
+  ok(C.collides(b, C.STATES.I[0], 3, C.row(18)), '바닥 접촉 감지');
+  ok(!C.collides(b, C.STATES.I[0], 3, C.row(16)), '바닥 여유 있으면 통과');
   ok(C.collides(b, C.STATES.J[0], -1, 0), '왼쪽 벽 감지');
   ok(C.collides(b, C.STATES.J[0], 8, 0), '오른쪽 벽 감지');
-  ok(!C.collides(b, C.STATES.J[0], 0, -2), '천장 위는 열림');
+  ok(!C.collides(b, C.STATES.J[0], 0, 0), '버퍼 맨 위 행은 열림');
+  ok(C.collides(b, C.STATES.J[0], 0, -1), '버퍼 위쪽은 천장(조각이 배열 밖으로 나갈 수 없다)');
+  ok(C.createBoard().length === C.HEIGHT && C.HEIGHT === C.ROWS + C.BUFFER, '보드는 보이는 20행 + 버퍼 ' + C.BUFFER + '행');
+  ok(C.row(19) === C.HEIGHT - 1, 'row() 은 보이는 행 → 배열 인덱스');
 })();
 // I 조각 스피너 월킥: 왼쪽 벽에 붙었을 때 회전 가능해야 함
 (function () {
@@ -102,15 +105,15 @@ console.log('\n[T-스핀 판정]');
 // 실제 T-스핀 더블(TSD) 상황 시뮬레이션
 (function () {
   const b = C.createBoard();
-  for (let x = 0; x < C.COLS; x++) { b[19][x] = 'J'; b[18][x] = 'J'; }
-  b[19][4] = null;            // 아래 홈
-  b[18][3] = b[18][4] = b[18][5] = null; // T가 들어갈 3칸
-  b[17][3] = 'J';             // 오버행 (앞모서리 1개)
-  const p = { type: 'T', x: 3, y: 17, rot: 2 };
+  for (let x = 0; x < C.COLS; x++) { b[C.row(19)][x] = 'J'; b[C.row(18)][x] = 'J'; }
+  b[C.row(19)][4] = null;            // 아래 홈
+  b[C.row(18)][3] = b[C.row(18)][4] = b[C.row(18)][5] = null; // T가 들어갈 3칸
+  b[C.row(17)][3] = 'J';             // 오버행 (앞모서리 1개)
+  const p = { type: 'T', x: 3, y: C.row(17), rot: 2 };
   ok(!C.collides(b, C.STATES.T[2], p.x, p.y), 'TSD 슬롯에 T 착석');
   ok(C.tspinKind(b, p, 0) === 'full', 'TSD → T-SPIN(full) 판정');
   C.merge(b, p);
-  ok(C.fullRows(b).join() === '18,19', 'TSD: 2줄 삭제');
+  ok(C.fullRows(b).join() === [C.row(18), C.row(19)].join(), 'TSD: 2줄 삭제');
   ok(C.scoreClear({ lines: 2, spin: 'full', level: 1 }).points === 1200, 'TSD 점수 1200');
   ok(C.wouldBePerfect(C.createBoard(), [0]) === true, '퍼펙트 클리어 예측');
 })();
@@ -118,18 +121,26 @@ console.log('\n[T-스핀 판정]');
 console.log('\n[줄 삭제]');
 (function () {
   const b = C.createBoard();
-  for (let x = 0; x < C.COLS; x++) { b[19][x] = 'I'; b[18][x] = 'O'; }
-  b[19][0] = null;
-  ok(C.fullRows(b).join() === '18', '가득 찬 행만 인식');
-  b[19][0] = 'I';
-  ok(C.fullRows(b).join() === '18,19', '2줄 인식');
-  C.removeRows(b, [18, 19]);
+  for (let x = 0; x < C.COLS; x++) { b[C.row(19)][x] = 'I'; b[C.row(18)][x] = 'O'; }
+  b[C.row(19)][0] = null;
+  ok(C.fullRows(b).join() === String(C.row(18)), '가득 찬 행만 인식');
+  b[C.row(19)][0] = 'I';
+  ok(C.fullRows(b).join() === C.row(18) + ',' + C.row(19), '2줄 인식');
+  C.removeRows(b, [C.row(18), C.row(19)]);
   ok(C.isEmptyBoard(b), '줄 제거 후 비움');
   const b2 = C.createBoard();
-  b2[19][0] = 'I'; b2[18][3] = 'J';
-  for (let x = 0; x < C.COLS; x++) b2[19][x] = b2[19][x] || 'S';
-  C.removeRows(b2, [19]);
-  ok(b2[19][3] === 'J' && b2[19][0] === null, '위 행이 아래로 내려옴');
+  b2[C.row(19)][0] = 'I'; b2[C.row(18)][3] = 'J';
+  for (let x = 0; x < C.COLS; x++) b2[C.row(19)][x] = b2[C.row(19)][x] || 'S';
+  C.removeRows(b2, [C.row(19)]);
+  ok(b2[C.row(19)][3] === 'J' && b2[C.row(19)][0] === null, '위 행이 아래로 내려옴');
+  /* 버퍼에 남은 블록도 줄이 지워지면 아래로 내려온다 (그래서 해시는 24행 전체 대상) */
+  const b3 = C.createBoard();
+  b3[0][0] = 'I';                                   // 버퍼 맨 위 칸
+  b3[C.row(18)][5] = 'J';                           // 지워질 행의 바로 위
+  for (let x = 0; x < C.COLS; x++) b3[C.row(19)][x] = b3[C.row(19)][x] || 'S';
+  C.removeRows(b3, [C.row(19)]);
+  ok(b3[1][0] === 'I' && b3[0][0] === null && b3.length === C.HEIGHT, '버퍼 블록은 한 행 내려옴(배열 크기는 유지)');
+  ok(b3[C.row(19)][5] === 'J' && b3[C.row(18)][5] === null, '지워진 행 바로 위의 블록이 그 행으로 내려온다');
   ok(b2[0].every(function (v) { return !v; }), '맨 위에 빈 행 생성');
 })();
 
@@ -232,12 +243,13 @@ console.log('\n[SRS 참조 구현과 무작위 대조]');
   }
   for (let t = 0; t < 3000; t++) {
     const b = C.createBoard();
-    for (let y = 15; y < C.ROWS; y++) for (let x = 0; x < C.COLS; x++) if (rnd() < 0.6) b[y][x] = 'J';
+    for (let y = C.row(15); y < C.HEIGHT; y++) for (let x = 0; x < C.COLS; x++) if (rnd() < 0.6) b[y][x] = 'J';
     if (b.some(function (r) { return r.every(Boolean); })) continue;
     const type = C.TYPES[Math.floor(rnd() * 7)];
     if (type === 'O') continue;
     const rot = Math.floor(rnd() * 4), x = Math.floor(rnd() * 10);
-    let y = -2;
+    let y = 0;
+    if (C.collides(b, C.STATES[type][rot], x, y)) continue;
     while (!C.collides(b, C.STATES[type][rot], x, y + 1)) y++;
     if (C.collides(b, C.STATES[type][rot], x, y)) continue;
     const dir = rnd() < 0.5 ? 1 : -1;
@@ -264,20 +276,21 @@ console.log('\n[SRS 고정 픽스처 — 위로 뚫는 킥]');
      19  . . . . # . # . . .
      T(rot0) 가 x=5, y=16 에 앉아 있다(아래 (6,18) 에 닿음). 반시계 회전 0→L: */
   const b = C.createBoard();
-  b[17][3] = 'J'; b[17][9] = 'J';
-  b[18][6] = 'J'; b[18][7] = 'J'; b[18][8] = 'J';
-  b[19][4] = 'J'; b[19][6] = 'J';
+  b[C.row(17)][3] = 'J'; b[C.row(17)][9] = 'J';
+  b[C.row(18)][6] = 'J'; b[C.row(18)][7] = 'J'; b[C.row(18)][8] = 'J';
+  b[C.row(19)][4] = 'J'; b[C.row(19)][6] = 'J';
   const tb = C.kicksFor('T', 0, 3);
+  const Y0 = C.row(16);
   const got = (function () {
     const m = C.STATES.T[3];
-    for (let i = 0; i < tb.length; i++) if (!C.collides(b, m, 5 + tb[i][0], 16 + tb[i][1])) return { x: 5 + tb[i][0], y: 16 + tb[i][1], kick: i };
+    for (let i = 0; i < tb.length; i++) if (!C.collides(b, m, 5 + tb[i][0], Y0 + tb[i][1])) return { x: 5 + tb[i][0], y: Y0 + tb[i][1], kick: i };
     return null;
   })();
   /* 가이드라인: test2 (+1,0)→오른쪽은 (6,18) 에 막히고, test3 (+1,+1)=**오른쪽 1칸 위** 가 통과 → (6,15) */
-  ok('공식 해석대로 test#3(오른쪽+위 1칸) 에서 착지', got && got.x === 6 && got.y === 15 && got.kick === 2, JSON.stringify(got));
+  ok('공식 해석대로 test#3(오른쪽+위 1칸) 에서 착지', got && got.x === 6 && got.y === C.row(15) && got.kick === 2, JSON.stringify(got));
   ok('부호 오류(r1)라면 test#4를 "2칸 위"로 써 (5,14) 에 앉는다', (function () {
     const m = C.STATES.T[3], src = C.kicksForGuideline('T', 0, 3);
-    for (let i = 0; i < src.length; i++) if (!C.collides(b, m, 5 + src[i][0], 16 + src[i][1])) return src[i][1] !== 0 && (16 + src[i][1]) === 14;
+    for (let i = 0; i < src.length; i++) if (!C.collides(b, m, 5 + src[i][0], Y0 + src[i][1])) return src[i][1] !== 0 && (Y0 + src[i][1]) === C.row(14);
     return false;
   })(), 'r1 동작이 실제로 달랐음을 확인');
 })();

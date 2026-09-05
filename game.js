@@ -17,7 +17,7 @@
   const CL = window.TetrisClient;
   const L = window.TetrisI18n;
 
-  const COLS = C.COLS, ROWS = C.ROWS;
+  const COLS = C.COLS, ROWS = C.ROWS, TOP = C.TOP;
   const MONO = 'ui-monospace, "Cascadia Mono", Consolas, monospace';
   const UI_FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif';
 
@@ -296,9 +296,10 @@
 
   function spawnClearParticles(rows) {
     for (let r = 0; r < rows.length; r++) {
-      const row = rows[r];
+      const row = rows[r] - TOP;          // 배열 인덱스 → 보이는 행 (버퍼 행의 파티클은 화면 위라 보이지 않는다)
+      if (row < 0 || row >= ROWS) continue;
       for (let x = 0; x < COLS; x++) {
-        const t = G.board[row][x] || 'I';
+        const t = G.board[rows[r]][x] || 'I';
         for (let i = 0; i < 3; i++) {
           G.particles.push({
             x: (x + 0.2 + Math.random() * 0.6) * cell,
@@ -602,8 +603,8 @@
   }
 
   function stackHeight() {
-    for (let y = 0; y < ROWS; y++) {
-      for (let x = 0; x < COLS; x++) if (G.board[y][x]) return ROWS - y;
+    for (let y = TOP; y < TOP + ROWS; y++) {
+      for (let x = 0; x < COLS; x++) if (G.board[y][x]) return TOP + ROWS - y;
     }
     return 0;
   }
@@ -644,9 +645,9 @@
 
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
-        const t = G.board[y][x];
+        const t = G.board[TOP + y][x];
         if (!t) continue;
-        if (rowSet[y]) {
+        if (rowSet[TOP + y]) {
           const sc = 1 - ct * 0.45;
           const off = (cell * (1 - sc)) / 2;
           ctx.globalAlpha = Math.max(0, 1 - ct * 0.9);
@@ -663,17 +664,22 @@
     if (G.piece && (G.state === 'playing' || G.state === 'paused')) {
       const gy = E.ghostY();
       const cells = C.cellsOf(G.piece.type, G.piece.rot);
+      /* 조각 좌표는 배열 인덱스(버퍼 포함) → 보이는 행으로 옮겨 그린다. 버퍼 위는 잘린다. */
       if (gy !== G.piece.y) {
         cells.forEach(function (c) {
-          if (gy + c[1] >= 0) drawCell(ctx, G.piece.type, (G.piece.x + c[0]) * cell, (gy + c[1]) * cell, cell, 'ghost');
+          const vy = gy + c[1] - TOP;
+          if (vy >= 0) drawCell(ctx, G.piece.type, (G.piece.x + c[0]) * cell, vy * cell, cell, 'ghost');
         });
         ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        cells.forEach(function (c) { ctx.fillRect((G.piece.x + c[0]) * cell, (gy + c[1]) * cell, cell, 2); });
+        cells.forEach(function (c) {
+          const vy = gy + c[1] - TOP;
+          if (vy >= 0) ctx.fillRect((G.piece.x + c[0]) * cell, vy * cell, cell, 2);
+        });
       }
       cells.forEach(function (c) {
-        const by = G.piece.y + c[1];
-        if (by < 0) return;
-        drawCell(ctx, G.piece.type, (G.piece.x + c[0]) * cell, by * cell, cell, 'active');
+        const vy = G.piece.y + c[1] - TOP;
+        if (vy < 0) return;
+        drawCell(ctx, G.piece.type, (G.piece.x + c[0]) * cell, vy * cell, cell, 'active');
       });
     }
 

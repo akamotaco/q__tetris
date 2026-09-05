@@ -34,11 +34,12 @@
    * 안 올리면 과거 리플레이가 서버에서 다른 점수로 재현되어 **검증 불가능한 유물**이 되고,
    * 그건 나중에 되돌릴 방법이 없다.
    *   r1 : SRS+월킥, 3-corner T-스핀(5th킥 full 승격), **하드 드롭으로 이동하면 스핀 해제**, 가이드라인 스코어링
-   *   r2 : **SRS 월킥 세로 부호를 가이드라인(y-up) 좌표계로 바로잡음.**
-   *        r1 까지는 원문 값을 화면 좌표(y-down)에 그대로 적용해 킥의 위/아래가 뒤집혀 있었다
-   *        → 공식 SRS에서 되는 셋업이 안 되고, 반대쪽(위로 뚫는) 셋업이 됐다. 회전 착지 위치가 바뀐다.
+   *   r2 : SRS 월킥의 세로 부호를 가이드라인(y-up) 좌표계로 바로잡음. r1 은 원문 값을 화면 좌표에
+   *        그대로 적용해 킥의 위/아래가 뒤집혀 있었다 → 공식 SRS와 다른 셋업이 만들어졌다.
+   *   r3 : 상단 버퍼 행(4행) 도입 + lock out 을 '조각이 전부 보이는 판 위에 잠길 때' 로 완화,
+   *        O 조각 회전도 성공으로 취급(r2 까지는 실패). 보드 해시는 24행 전체 대상.
    */
-  const RULES_ID = 'r2';
+  const RULES_ID = 'r3';
 
   /* ---------- 모드 ---------- */
   const MODES = {
@@ -168,7 +169,8 @@
         type: type,
         rot: 0,
         x: Math.floor((C.COLS - m[0].length) / 2),
-        y: -C.EMPTY_TOP[type],
+        /* 스폰은 보이는 판 위쪽 버퍼 영역. 조각의 첫 점유 행이 버퍼 안에 자리잡는다. */
+        y: C.TOP - C.EMPTY_TOP[type],
       };
       E.dropT = 0; E.lockT = 0; E.lockResets = 0;
       E.spinFlag = false; E.lastKick = 0; E.lastHard = false;
@@ -206,7 +208,10 @@
     }
 
     function rotate(dir) {
-      if (!E.piece || E.state === 'over' || E.piece.type === 'O') return false;
+      /* O 조각도 회전은 **성공**한다 (가이드라인: O 에도 4개 회전 상태가 있고, 기본 회전은 같은 자리를 가리킨다).
+         r2 까지는 O 회전을 실패로 처리해서 O로 락 딜레이 리셋을 할 수 없었다.
+         킥 후보는 [[0,0]] 하나뿐이므로 위치는 움직이지 않고, T-스핀 판정은 T 조각에만 적용되어 영향이 없다. */
+      if (!E.piece || E.state === 'over') return false;
       const p = E.piece;
       const from = p.rot;
       const to = dir === 2 ? (p.rot + 2) % 4 : (p.rot + (dir > 0 ? 1 : 3)) % 4;
@@ -284,8 +289,12 @@
       if (!p || E.state === 'over') return;
       const spin = E.spinFlag ? C.tspinKind(E.board, p, E.lastKick) : 'none';
 
-      let topped = false;
-      C.cellsOf(p.type, p.rot).forEach(function (c) { if (p.y + c[1] < 0) topped = true; });
+      /* 가이드라인의 끝남 조건 두 가지 중 여기는 **lock out**: 조각이 **전부** 보이는 판 위에 잠길 때만 끝난다.
+         일부만 위에 걸린 채 잠기는 것은 정상 진행이다(그 블록은 버퍼에 남아 다음에 내려온다).
+         r2 까지는 칸 하나라도 위에 있으면 바로 끝났고, 버퍼 행 자체가 없었다. */
+      const cells = C.cellsOf(p.type, p.rot);
+      const allAbove = cells.every(function (c) { return p.y + c[1] < C.TOP; });
+      const topped = allAbove;
 
       C.merge(E.board, p);
       E.piece = null;
@@ -479,7 +488,7 @@
     /* ---- 상태 조회 ---- */
     function boardHash() {
       let s = '';
-      for (let y = 0; y < C.ROWS; y++) {
+      for (let y = 0; y < C.HEIGHT; y++) {
         for (let x = 0; x < C.COLS; x++) s += E.board[y][x] ? E.board[y][x] : '.';
       }
       return fnv(s);
