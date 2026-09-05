@@ -26,9 +26,9 @@ const LIMITS = {
   maxInputs: 40000,
   maxTicks: 4 * 3600 * 60,    // 4시간(틱 단위! 864,000 틱)
   /** 물리 하한: 사람보다 빠른 순간 속도는 "계산이 대신 돌렸다"는 뜻이므로 기각. */
-  minTicksPerPiece: 9,          // 6.7 PPS 상한 (세계 최고 수준 ~4.5 PPS)
-  minTicksPerLine: 30,          // 초당 2줄 상한 (스프린트 세계신 ~0.85줄/초)
-  minTicksAbs: 60,              // 1초 미만 실행은 제출 불가
+  minTicksAbs: 45,              // 0.75초 미만 실행은 제출 불가(퇴화 제출 차단)
+  flagTicksPerPiece: 10,        // 조각당 10틱 미만 = 6 PPS 이상 → 의심 플래그
+  flagTicksPerLine: 24,         // 줄당 24틱 미만 = 초당 2.5줄 → 의심 플래그
   // 레이트리밋 (fp/ip 기준, 분 단위 윈도우)
   tokenPerHour: 40,
   submitPerHour: 30,

@@ -26,8 +26,7 @@ const DB = require('./db');
  * → 같은 플레이인데 점수만 부풀려 재제출하면 **같은 digest** 가 떨어져 UNIQUE 에 걸린다.
  */
 function digestOf(rec) {
-  const canon = [RP.VERSION, rec.mode, rec.level | 0, rec.g20 ? 1 : 0, rec.seed, RP.encodeInputs(rec.inputs)].join('|');
-  return crypto.createHash('sha256').update(canon).digest('hex');
+  return crypto.createHash('sha256').update(RP.canonical(rec)).digest('hex');
 }
 function cryptosha(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
 
@@ -47,13 +46,38 @@ function fpFromJwk(jwk) {
 function verifyOwnership(jwk, fp, payload, sigB64) {
   try {
     if (!ID.validFp(fp) || fpFromJwk(jwk) !== fp) return { ok: false, why: 'fp-mismatch' };
-    const sig = Buffer.from(String(sigB64), 'base64');
+    const sig = normalizeEcdsaSig(Buffer.from(String(sigB64), 'base64'));
     if (sig.length < 8 || sig.length > 128) return { ok: false, why: 'sig-length' };
-    const ok = crypto.verify('sha256', Buffer.from(String(payload), 'utf8'), jwkPublicKey(jwk), sig);
-    return { ok: !!ok, why: ok ? null : 'sig-bad' };
+    try {
+      const ok = crypto.verify('sha256', Buffer.from(String(payload), 'utf8'), jwkPublicKey(jwk), sig);
+      return { ok: !!ok, why: ok ? null : 'sig-bad' };
+    } catch (e) {
+      return { ok: false, why: 'sig-error:' + e.message };
+    }
   } catch (e) {
     return { ok: false, why: 'sig-error:' + e.message };
   }
+}
+
+/**
+ * ECDSA 서명 인코딩 통일.
+ * 브라우저 WebCrypto 는 DER(ASN.1, 약 70~72바이트) 를 돌려주지만, node 의 webcrypto 는
+ * raw r||s(64바이트) 를 돌려준다. 같은 코드를 두고 "테스트에서는 되고 브라우저에서는 안 되는"
+ * 사고를 막으려면 두 형태를 모두 받아야 한다.
+ */
+function derInt(b) {
+  let i = 0;
+  while (i < b.length - 1 && b[i] === 0) i++;
+  let v = b.slice(i);
+  if (v[0] & 0x80) v = Buffer.concat([Buffer.from([0]), v]);
+  return Buffer.concat([Buffer.from([2, v.length]), v]);
+}
+function normalizeEcdsaSig(buf) {
+  if (buf.length === 64) {   // Chrome/Edge·node webcrypto 는 raw r||s 를 돌려주기도 한다
+    const body = Buffer.concat([derInt(buf.slice(0, 32)), derInt(buf.slice(32))]);
+    return Buffer.concat([Buffer.from([0x30, body.length]), body]);   // SEQUENCE 태그
+  }
+  return buf;                     // 이미 DER
 }
 
 /* ================= 닉네임 정책 (공개는 공유 링크에서만) ================= */
@@ -155,8 +179,10 @@ function verify(rec, ctx) {
   /* 2. 물리적 하한 — 조각/줄 수 대비 너무 짧으면 기각 (짧은 게임 자체는 합법적으로 허용) */
   const L = CFG.LIMITS;
   if (rec.ticks < L.minTicksAbs) return reject('too-short');
-  if (rec.pieces > 2 && rec.ticks < rec.pieces * L.minTicksPerPiece) return reject('too-fast-per-piece');
-  if (rec.lines > 2 && rec.ticks < rec.lines * L.minTicksPerLine) return reject('too-fast-per-line');
+  /* 속도가 물리 상한을 넘는지는 **플래그**로만 다룬다: 렌더가 밀리면 게임 시간이 압축되어
+     정직한 플레이어도 초인적으로 보일 수 있다. 기각은 재시뮬 불일치·시드·월클럭만. */
+  out.speedSuspect = (rec.pieces > 2 && rec.ticks < rec.pieces * L.flagTicksPerPiece) ||
+    (rec.lines > 2 && rec.ticks < rec.lines * L.flagTicksPerLine);
 
   /* 3. 재시뮬레이션 */
   sim = EN.simulate(rec, { maxTicks: CFG.LIMITS.maxTicks + 600 });
@@ -201,6 +227,7 @@ function verify(rec, ctx) {
   m.reactMedian = rx.median; m.reactFastShare = rx.fastShare; m.reactMedianAll = rx.medianAll;
   out.metrics = m;
 
+  if (out.speedSuspect) out.flags.push('speed_impossible');
   if (m.pps > 5.0) out.flags.push('pps_extreme');
   else if (m.pps > 3.2) out.flags.push('pps_high');
   if (m.apm > 260) out.flags.push('apm_extreme');

@@ -57,6 +57,11 @@
     return list;
   }
 
+  /** 서버·클라임이 같은 문자열로 digest 를 만들 수 있도록 규격화를 한 곳에 둔다. */
+  function canonical(rec) {
+    return [VERSION, rec.mode, rec.level | 0, rec.g20 ? 1 : 0, rec.seed, encodeInputs(rec.inputs || [])].join('|');
+  }
+
   /* ---- 전체 레코드 ---- */
   function pack(rec) {
     return [
@@ -152,6 +157,7 @@
 
   return {
     VERSION: VERSION,
+    canonical: canonical,
     PRESS: PRESS, REL: REL,
     encodeInputs: encodeInputs,
     decodeInputs: decodeInputs,

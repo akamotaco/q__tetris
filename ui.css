@@ -1,0 +1,183 @@
+/* ============================================================
+   NEON TETRIS — 확장 UI (정체성 / 월드 보드 / 제출 / 리플레이 / 고스트)
+   테마 토큰(--bg, --accent …)은 style.css :root 를 그대로 쓴다.
+   ============================================================ */
+
+/* ---------- 타이포그래피 (CJK) ----------
+   자체 호스팅 서브셋 폰트를 넣을 자리. 없어도 시스템 스택으로 완전히 동작한다.
+   예:
+   @font-face { font-family: "Pretendard"; font-weight: 400 900; font-display: swap;
+                src: url("fonts/pretendard-var-latin.woff2") format("woff2-variations"); unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF; }
+   @font-face { font-family: "Pretendard"; font-weight: 400 900; font-display: swap;
+                src: url("fonts/pretendard-var-hangul.woff2") format("woff2-variations"); unicode-range: U+1100-11FF, U+3130-318F, U+A960-A97F, U+AC00-D7AF; }
+*/
+:root {
+  --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI Variable", "Segoe UI",
+          "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans JP",
+          "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Roboto Mono", monospace;
+}
+
+/* 한국어는 CJK 기본 줄바꿈이 문장을 중간에 잘라버린다 → 어절 단위로만 나눔 */
+body[data-lang="ko"] { word-break: keep-all; overflow-wrap: anywhere; }
+body[data-lang="ja"], body[data-lang="zh"] { word-break: normal; overflow-wrap: break-word; }
+.ov-title, .ov-sub, .card-head, .keys { text-wrap: balance; }
+body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
+
+.mono { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+/* 점수·시간은 자리가 흔들리면 비교가 안 된다 */
+.big-num, .mini b, .wb-row b, .wb-row .rk, .rc-gap, .rp-ctrl .mono, .goal b,
+#statTime, #statPieces, #statLpm, #statAps, #statTetris, #statTspin, .me-chip span {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 상단 상태 / 내 ID ---------- */
+.net {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  background: #3ee08f; box-shadow: 0 0 8px #3ee08f;
+}
+.net.off { background: #6a7391; box-shadow: none; }
+.me-chip {
+  font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 9px; background: var(--panel-2); white-space: nowrap;
+}
+.me-chip b { color: var(--ink); font-weight: 700; }
+.me-chip span { opacity: 0.7; margin-left: 4px; font-family: var(--mono); font-size: 10px; }
+.sel {
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 12px;
+}
+.sel.mini { padding: 2px 4px; font-size: 10px; letter-spacing: 0.06em; }
+.hint { font-size: 9px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; }
+.netline { margin: 8px 0 0; font-size: 10px; color: var(--dim); text-align: center; }
+
+/* ---------- 설정 (모드 / 시작 레벨 / 20G) ---------- */
+.settings { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 14px; }
+.chips-row { display: flex; gap: 6px; }
+.mode {
+  background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 11px; cursor: pointer; transition: 0.15s;
+}
+.mode:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.2); }
+.mode.on {
+  color: #05070f; background: linear-gradient(135deg, var(--accent), #7af0ff);
+  border-color: transparent; font-weight: 800;
+}
+.set { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--dim); letter-spacing: 0.1em; }
+.chk { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); cursor: pointer; }
+.chk input { accent-color: var(--accent); }
+.goal { font-size: 10px; color: var(--accent); letter-spacing: 0.06em; }
+
+/* ---------- 버튼 변형 ---------- */
+.btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #05070f; border: 0; font-weight: 900; }
+.btn.ghost { background: transparent; color: var(--dim); border: 1px solid var(--line); }
+.btn.ghost:hover { color: var(--ink); }
+.btn.tiny { padding: 3px 9px; font-size: 10px; border-radius: 7px; }
+.btn[disabled] { opacity: 0.55; cursor: progress; }
+
+/* ---------- 월드 보드 / 내 기록 ---------- */
+.wb-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 7px; }
+.tab {
+  background: transparent; border: 1px solid var(--line); color: var(--dim);
+  font: inherit; font-size: 10px; padding: 3px 8px; border-radius: 999px; cursor: pointer;
+}
+.tab.on { background: var(--panel); color: var(--ink); border-color: rgba(53, 229, 245, 0.4); }
+.grow { flex: 1 1 auto; }
+.wb-list { display: flex; flex-direction: column; gap: 3px; max-height: 250px; overflow: auto; }
+.wb-list.mine { max-height: 150px; }
+.wb-row {
+  display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 6px;
+  padding: 4px 6px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+  background: var(--panel-2); font-size: 11px;
+}
+.wb-row:hover { border-color: rgba(53, 229, 245, 0.35); background: var(--panel); }
+.wb-row .rk { font-style: normal; font-family: var(--mono); font-size: 10px; color: var(--dim); text-align: center; justify-self: center; }
+.wb-row .rk.g { color: #ffd83d; text-shadow: 0 0 10px rgba(255, 216, 61, 0.5); }
+.wb-row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-row .who em { font-style: normal; color: var(--dim); font-size: 9px; font-family: var(--mono); margin-left: 4px; }
+.wb-row b { font-size: 12px; }
+.wb-row .sub { grid-column: 2 / -1; font-size: 9px; color: var(--dim); }
+.wb-row .flag { color: #ff9f43; }
+.muted { color: var(--dim); font-size: 11px; }
+
+/* ---------- 고스트 레이스 (도전 중) ---------- */
+.bar-top {
+  position: absolute; left: 8px; right: 8px; top: 8px; z-index: 4;
+  background: rgba(5, 7, 15, 0.78); border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px 8px; backdrop-filter: blur(8px);
+}
+.rc-names { display: flex; justify-content: space-between; font-size: 9px; color: var(--dim); letter-spacing: 0.08em; }
+.rc-track { position: relative; height: 6px; margin: 4px 0 2px; border-radius: 3px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.rc-me { position: absolute; top: 0; bottom: 0; left: 0; background: linear-gradient(90deg, var(--accent), #7af0ff); }
+.rc-them { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(192, 91, 255, 0.45); }
+.rc-gap { text-align: right; font-size: 11px; color: #ff9f43; }
+.rc-gap.ahead { color: #3ee08f; }
+
+/* ---------- 리플레이 바 ---------- */
+.bar-bottom {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 4;
+  background: rgba(5, 7, 15, 0.82); border: 1px solid var(--line); border-radius: 10px;
+  padding: 7px 9px; backdrop-filter: blur(8px);
+}
+.rp-head { display: flex; align-items: center; gap: 8px; font-size: 11px; flex-wrap: wrap; }
+.rp-head b { color: var(--accent); letter-spacing: 0.12em; font-size: 10px; }
+.rp-head .tag { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 9px; color: var(--dim); }
+.rp-ctrl { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dim); }
+.rp-track { flex: 1 1 auto; height: 6px; background: rgba(255, 255, 255, 0.07); border-radius: 3px; cursor: pointer; position: relative; }
+.rp-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 3px; }
+.sp.on { color: #05070f; background: var(--accent); border-color: transparent; font-weight: 800; }
+.hidden { display: none !important; }
+
+/* ---------- 제출 상자 ---------- */
+.submit-box {
+  margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04); max-width: 430px; text-align: left;
+}
+.sb-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--dim); }
+.sb-row input[type="text"], .sb-row input:not([type]) {
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); font: inherit; font-size: 12px; padding: 5px 8px; width: 150px;
+}
+.sb-act { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.sb-out { margin-top: 10px; display: flex; flex-direction: column; gap: 7px; }
+.res { font-size: 11px; padding: 7px 9px; border-radius: 9px; border: 1px solid var(--line); }
+.res.ok { color: #9dfac4; border-color: rgba(62, 224, 143, 0.4); background: rgba(62, 224, 143, 0.08); }
+.res.warn { color: #ffd08a; border-color: rgba(255, 159, 67, 0.4); background: rgba(255, 159, 67, 0.08); }
+.res.bad { color: #ff9fb0; border-color: rgba(255, 92, 122, 0.45); background: rgba(255, 92, 122, 0.08); }
+.res code { font-family: var(--mono); font-size: 10px; opacity: 0.85; }
+.rank { font-size: 12px; color: var(--ink); }
+.rank b { color: #ffd83d; }
+.share { display: flex; gap: 6px; align-items: center; font-size: 10px; color: var(--dim); }
+.share input {
+  flex: 1 1 auto; min-width: 0; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line);
+  color: var(--accent); border-radius: 8px; padding: 5px 7px; font-family: var(--mono); font-size: 10px;
+}
+.bar.indet {
+  height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: nt-indet 1.1s infinite;
+}
+@keyframes nt-indet { 0% { opacity: 0.2 } 50% { opacity: 1 } 100% { opacity: 0.2 } }
+
+/* ---------- 토스트 ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);
+  background: rgba(5, 7, 15, 0.92); border: 1px solid var(--line); color: var(--ink);
+  padding: 9px 16px; border-radius: 999px; font-size: 12px; opacity: 0; pointer-events: none;
+  transition: 0.25s; z-index: 40; max-width: 84vw;
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- 모바일 ---------- */
+@media (max-width: 900px) {
+  /* 모바일은 보드 중심. 카드는 아래로 스크롤 (보드가 카드에 갉아먹히지 않게) */
+  .app { overflow-y: auto; overflow-x: hidden; }
+  .stage-slot { min-height: 44vh; }
+  #mineCard { display: none; }
+  #worldCard { grid-area: 4 / 1 / 5 / 3; }
+  .settings { gap: 6px; }
+  .me-chip { font-size: 10px; padding: 2px 7px; }
+  .submit-box { text-align: left; }
+  .rp-head { font-size: 10px; }
+  .wb-list { max-height: 132px; }
+}

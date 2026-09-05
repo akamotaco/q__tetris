@@ -136,9 +136,12 @@ function serveIndex(req, res, run) {
     '<title>' + esc(title) + '</title>',
   ].join('\n');
   const html = indexHtml();
+  /* /r/<share> 같이 경로를 들여 쓰는 페이지에서는 상대 경로 에셋이 /r/ 아래로 새므로
+     base 를 걸어준다. (file:// 직접 실행은 이 코드를 거치지 않아 상대 경로 유지) */
+  const base = run ? '<base href="/">' : '';
   const out = html.indexOf('<!--OG-->') >= 0
-    ? html.replace('<!--OG-->', og)
-    : html.replace('</title>', ' — ' + esc(run ? '기록' : '') + '</title>\n' + og);
+    ? html.replace('<!--OG-->', base + og)
+    : html.replace('</title>', ' — ' + esc(run ? '기록' : '') + '</title>\n' + base + og);
   send(res, 200, out, headers);
 }
 

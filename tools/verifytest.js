@@ -90,6 +90,24 @@ async function playAndSubmit(me, opt) {
   ok('IP 마스킹', ID.ipMask('211.234.11.9') === '211.234.xx.xx', ID.ipMask('211.234.11.9'));
   ok('풀 전수 감사(욕설 조합)', ID.audit().length === 0, ID.audit());
 
+  group('서명 인코딩 (브라우저 DER / node webcrypto raw)');
+  const wc = crypto.webcrypto;
+  const wkp = await wc.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const wjwk = await wc.subtle.exportKey('jwk', wkp.publicKey);
+  const wspki = await wc.subtle.exportKey('spki', wkp.publicKey);
+  const wfp = ID.fpFromHash(crypto.createHash('sha256').update(Buffer.from(wspki)).digest('hex')).fp;
+  const wPayload = ID.authPayload('NTSUB1', ['abc123', 'nonce-9']);
+  const rawSig = Buffer.from(await wc.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, wkp.privateKey, Buffer.from(wPayload))).toString('base64');
+  const pkcs8 = Buffer.from(await wc.subtle.exportKey('pkcs8', wkp.privateKey));
+  const nodePriv = crypto.createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  const derSig = crypto.sign('sha256', Buffer.from(wPayload), nodePriv).toString('base64');
+  ok('서버/클라임 지문 계산 일치', ID.validFp(wfp), wfp);
+  ok('raw r||s(64B) 서명 허용', Buffer.from(rawSig, 'base64').length === 64 && V.verifyOwnership(wjwk, wfp, wPayload, rawSig).ok,
+    V.verifyOwnership(wjwk, wfp, wPayload, rawSig));
+  ok('DER 서명 허용 (브라우저)', V.verifyOwnership(wjwk, wfp, wPayload, derSig).ok, V.verifyOwnership(wjwk, wfp, wPayload, derSig));
+  ok('내용을 바꾼 서명 거부', !V.verifyOwnership(wjwk, wfp, wPayload + 'x', rawSig).ok);
+  ok('남의 키로 서명 거부', !V.verifyOwnership(wjwk, 'aaaaaaaa', wPayload, rawSig).ok);
+
   group('기본 제출 → 검증 → 발행');
   const p1 = await playAndSubmit(hero, { preset: 'human', displayName: '강하나', ip: '211.1.1.1' });
   ok('200', p1.submit.code === 200, p1.submit.json && p1.submit.json.code ? p1.submit.json : p1.submit.text);

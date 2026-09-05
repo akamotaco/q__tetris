@@ -1,153 +1,144 @@
 /**
- * NEON TETRIS — 렌더링 / 입력 / 게임 루프
+ * NEON TETRIS — 클라이언트 (표현/입력/연출)
+ *
+ * 게임 규칙은 전적으로 engine.js 가owns 한다. 이 파일은
+ *   · 60Hz 틱 루프로 엔진을 진행하고
+ *   · 입력을 엔진에 넘기면서 **동시에 리플레이로 기록**하고
+ *   · 엔진이 내보낸 events 로 연출(파티클·소리·팝업·흔들림)을 만들고
+ *   · HUD/보드/공유/리플레이 재생 UI 를 관리한다.
+ * 규칙이 여기에 없으므로 "화면에서 본 것"과 "서버가 재계산한 것"이 갈라질 수 없다.
  */
 (function () {
   'use strict';
-
   const C = window.TetrisCore;
+  const EN = window.TetrisEngine;
+  const RP = window.TetrisReplay;
+  const ID = window.TetrisIdentity;
+  const CL = window.TetrisClient;
+  const L = window.TetrisI18n;
+
   const COLS = C.COLS, ROWS = C.ROWS;
   const MONO = 'ui-monospace, "Cascadia Mono", Consolas, monospace';
-
-  const DAS = 0.14;        // 지연 후 좌우 반복 시작 (초)
-  const ARR = 0.028;       // 좌우 반복 간격
-  const SOFT = 0.032;      // 소프트 드롭 간격 상한
-  const LOCK = 0.5;        // 락 딜레이
-  const MAX_RESETS = 15;   // 락 딜레이 리셋 한도
-  const CLEAR_TIME = 0.26; // 줄 삭제 애니메이션
-  const MAX_LEVEL = 20;
+  const UI_FONT = '"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif';
 
   /* ================= DOM ================= */
   const $ = function (id) { return document.getElementById(id); };
-  const stage = $('stage');
-  const slot = stage.parentElement;
   const canvas = $('board');
   const ctx = canvas.getContext('2d');
-  const holdCard = $('holdCard');
-  const holdCanvas = $('hold');
-  const nextWrap = $('nextWrap');
+  const stage = $('stage');
+  const slot = document.querySelector('.stage-slot');
   const overlay = $('overlay');
-  const ovTitle = $('ovTitle'), ovSub = $('ovSub'), ovStats = $('ovStats'), ovBtn = $('ovBtn');
+  const ovTitle = $('ovTitle');
+  const ovSub = $('ovSub');
+  const ovStats = $('ovStats');
+  const ovBtn = $('ovBtn');
   const scoreEl = $('score'), levelEl = $('level'), linesEl = $('lines'), highEl = $('high');
   const chipsEl = $('chips');
+  const holdCard = $('holdCard');
   const statTime = $('statTime'), statPieces = $('statPieces'), statLpm = $('statLpm');
   const statAps = $('statAps'), statTetris = $('statTetris'), statTspin = $('statTspin');
+  const goalEl = $('goal'), goalWrap = $('goalWrap');
+  const previews = [];
 
-  const previews = [{ el: holdCanvas, ctx: holdCanvas.getContext('2d') }];
-  for (let i = 0; i < 5; i++) {
-    const c = document.createElement('canvas');
-    nextWrap.appendChild(c);
-    previews.push({ el: c, ctx: c.getContext('2d') });
-  }
+  (function buildPreviews() {
+    const hp = { el: $('hold') };
+    hp.ctx = hp.el.getContext('2d');
+    previews.push(hp);
+    const wrap = $('nextWrap');
+    for (let i = 0; i < 5; i++) {
+      const cv = document.createElement('canvas');
+      cv.className = 'preview' + (i === 0 ? ' big' : '');
+      wrap.appendChild(cv);
+      const p = { el: cv };
+      p.ctx = cv.getContext('2d');
+      previews.push(p);
+    }
+  })();
 
   /* ================= 소리 ================= */
   const sfx = {
-    ac: null, master: null, muted: false, noiseBuf: null,
+    ctx: null, muted: false, master: null,
     init: function () {
-      if (this.ac) return;
+      if (this.ctx) return;
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      try { this.ac = new AC(); } catch (e) { return; }
-      this.master = this.ac.createGain();
-      this.master.gain.value = 0.16;
-      this.master.connect(this.ac.destination);
-      const len = Math.floor(this.ac.sampleRate * 0.4);
-      this.noiseBuf = this.ac.createBuffer(1, len, this.ac.sampleRate);
-      const d = this.noiseBuf.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.32;
+      this.master.connect(this.ctx.destination);
     },
     resume: function () {
       this.init();
-      if (this.ac && this.ac.state === 'suspended') this.ac.resume();
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
     },
-    tone: function (o) {
-      if (!this.ac || this.muted) return;
-      const t = this.ac.currentTime + (o.delay || 0);
-      const osc = this.ac.createOscillator();
-      const g = this.ac.createGain();
-      osc.type = o.type || 'square';
-      osc.frequency.setValueAtTime(o.f, t);
-      if (o.f2) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.f2), t + o.d);
+    tone: function (freq, dur, type, vol, slide) {
+      if (!this.ctx || this.muted) return;
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq * slide), t + dur);
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(o.v == null ? 0.28 : o.v, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + o.d);
-      osc.connect(g); g.connect(this.master);
-      osc.start(t); osc.stop(t + o.d + 0.03);
+      g.gain.exponentialRampToValueAtTime(vol == null ? 0.2 : vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + dur + 0.02);
     },
-    noise: function (o) {
-      if (!this.ac || this.muted || !this.noiseBuf) return;
-      const t = this.ac.currentTime + (o.delay || 0);
-      const src = this.ac.createBufferSource();
-      src.buffer = this.noiseBuf;
-      const f = this.ac.createBiquadFilter();
-      f.type = 'lowpass'; f.frequency.value = o.cut || 1200;
-      const g = this.ac.createGain();
-      g.gain.setValueAtTime(o.v || 0.2, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + (o.d || 0.12));
-      src.connect(f); f.connect(g); g.connect(this.master);
-      src.start(t); src.stop(t + (o.d || 0.12) + 0.02);
+    noise: function (dur, vol) {
+      if (!this.ctx || this.muted) return;
+      const len = Math.floor(this.ctx.sampleRate * dur);
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+      const s = this.ctx.createBufferSource();
+      const g = this.ctx.createGain();
+      g.gain.value = vol || 0.2;
+      s.buffer = buf; s.connect(g); g.connect(this.master);
+      s.start();
     },
-    move: function () { this.tone({ f: 190, d: 0.035, v: 0.09, type: 'square' }); },
-    rotate: function () { this.tone({ f: 430, f2: 660, d: 0.07, v: 0.16, type: 'triangle' }); },
-    hold: function () { this.tone({ f: 320, f2: 480, d: 0.09, v: 0.18, type: 'sine' }); },
-    drop: function () { this.noise({ d: 0.1, v: 0.22, cut: 700 }); this.tone({ f: 130, f2: 55, d: 0.1, v: 0.16, type: 'sawtooth' }); },
-    lock: function () { this.noise({ d: 0.06, v: 0.13, cut: 950 }); },
+    move: function () { this.tone(320, 0.03, 'square', 0.05); },
+    rotate: function () { this.tone(520, 0.05, 'triangle', 0.09); },
+    lock: function () { this.tone(160, 0.06, 'square', 0.11); },
+    drop: function () { this.noise(0.09, 0.14); },
+    hold: function () { this.tone(420, 0.07, 'sine', 0.12, 1.5); },
     clear: function (n) {
-      const notes = [523, 659, 784, 1046];
-      for (let i = 0; i < Math.max(2, n + 1); i++) {
-        this.tone({ f: notes[i % 4] * (n >= 4 ? 1.5 : 1), d: 0.16, v: 0.14, delay: i * 0.055, type: 'triangle' });
-      }
-      this.noise({ d: 0.2, v: 0.12, cut: 2600, delay: 0.02 });
+      const base = [0, 480, 560, 640, 780][Math.min(4, n)] || 480;
+      for (let i = 0; i < Math.min(4, n); i++) this.tone(base + i * 110, 0.1, 'triangle', 0.14);
+      if (n >= 4) this.tone(1180, 0.42, 'sawtooth', 0.11, 0.6);
     },
     pc: function () {
-      [523, 659, 784, 1046, 1318, 1568].forEach(function (f, i) {
-        sfx.tone({ f: f, d: 0.28, v: 0.14, delay: i * 0.07, type: 'triangle' });
+      [523, 659, 784, 1046, 1318].forEach(function (f, i) {
+        setTimeout(function () { sfx.tone(f, 0.22, 'triangle', 0.13); }, i * 70);
       });
     },
-    level: function () {
-      [440, 587, 880].forEach(function (f, i) {
-        sfx.tone({ f: f, d: 0.2, v: 0.16, delay: i * 0.09, type: 'sine' });
-      });
-    },
+    level: function () { this.tone(700, 0.14, 'sine', 0.14); this.tone(1046, 0.24, 'sine', 0.1, 1.2); },
     over: function () {
-      [392, 330, 262, 196].forEach(function (f, i) {
-        sfx.tone({ f: f, d: 0.4, v: 0.2, delay: i * 0.16, type: 'triangle' });
+      [420, 330, 250, 170].forEach(function (f, i) {
+        setTimeout(function () { sfx.tone(f, 0.24, 'sawtooth', 0.12, 0.7); }, i * 130);
       });
     },
   };
 
   /* ================= 색상/스프라이트 ================= */
-  function hex2rgb(h) {
-    const v = parseInt(h.slice(1), 16);
-    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
-  }
-  function rgba(hex, a) {
-    const c = hex2rgb(hex);
-    return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
-  }
+  function hex2rgb(h) { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+  function rgba(hex, a) { const c = hex2rgb(hex); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
   function shade(hex, amt) {
     const c = hex2rgb(hex);
-    const f = function (v) {
-      return Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt));
-    };
+    const f = function (v) { return Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt)); };
     return 'rgb(' + f(c[0]) + ',' + f(c[1]) + ',' + f(c[2]) + ')';
   }
   function roundRect(g, x, y, w, h, r) {
     r = Math.min(r, w / 2, h / 2);
     g.beginPath();
-    g.moveTo(x + r, y);
-    g.lineTo(x + w - r, y);
-    g.quadraticCurveTo(x + w, y, x + w, y + r);
-    g.lineTo(x + w, y + h - r);
-    g.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    g.lineTo(x + r, y + h);
-    g.quadraticCurveTo(x, y + h, x, y + h - r);
-    g.lineTo(x, y + r);
-    g.quadraticCurveTo(x, y, x + r, y);
-    g.closePath();
+    g.moveTo(x + r, y); g.lineTo(x + w - r, y);
+    g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r);
+    g.quadraticCurveTo(x + w, y + h, x + w - r, y + h); g.lineTo(x + r, y + h);
+    g.quadraticCurveTo(x, y + h, x, y + h - r); g.lineTo(x, y + r);
+    g.quadraticCurveTo(x, y, x + r, y); g.closePath();
   }
 
   const sprites = new Map();
-  /** 블록 스프라이트 (dpr 해상도로 생성, CSS px 로 그려짐) */
   function sprite(type, size, mode) {
     const key = type + '|' + size + '|' + mode + '|' + dpr;
     if (sprites.has(key)) return sprites.get(key);
@@ -155,18 +146,14 @@
     const pad = Math.ceil(size * 0.45);
     const box = size + pad * 2;
     const cv = document.createElement('canvas');
-    cv.width = Math.ceil(box * dpr);
-    cv.height = Math.ceil(box * dpr);
+    cv.width = Math.ceil(box * dpr); cv.height = Math.ceil(box * dpr);
     const g = cv.getContext('2d');
     g.scale(dpr, dpr);
     const x = pad, y = pad, s = size, r = Math.max(2, size * 0.2);
-
     if (mode === 'ghost') {
       roundRect(g, x + s * 0.1, y + s * 0.1, s * 0.8, s * 0.8, r * 0.7);
       g.fillStyle = rgba(col, 0.07); g.fill();
-      g.strokeStyle = rgba(col, 0.42);
-      g.lineWidth = Math.max(1.2, s * 0.07);
-      g.stroke();
+      g.strokeStyle = rgba(col, 0.42); g.lineWidth = Math.max(1.2, s * 0.07); g.stroke();
     } else {
       const glow = mode === 'active' ? 1 : 0.38;
       g.shadowColor = rgba(col, 0.8 * glow);
@@ -174,27 +161,16 @@
       g.fillStyle = rgba(col, 0.9);
       roundRect(g, x, y, s, s, r); g.fill();
       g.shadowBlur = 0;
-
       const grad = g.createLinearGradient(x, y, x + s * 0.35, y + s);
-      grad.addColorStop(0, shade(col, 0.35));
-      grad.addColorStop(0.5, col);
-      grad.addColorStop(1, shade(col, -0.5));
-      roundRect(g, x, y, s, s, r);
-      g.fillStyle = grad; g.fill();
-
-      // 상단 하이라이트
+      grad.addColorStop(0, shade(col, 0.35)); grad.addColorStop(0.5, col); grad.addColorStop(1, shade(col, -0.5));
+      roundRect(g, x, y, s, s, r); g.fillStyle = grad; g.fill();
       roundRect(g, x + s * 0.14, y + s * 0.11, s * 0.72, s * 0.3, r * 0.55);
-      g.fillStyle = 'rgba(255,255,255,' + (0.24 + 0.14 * glow) + ')';
-      g.fill();
-
-      // 테두리
+      g.fillStyle = 'rgba(255,255,255,' + (0.24 + 0.14 * glow) + ')'; g.fill();
       roundRect(g, x + 0.7, y + 0.7, s - 1.4, s - 1.4, r * 0.85);
       g.strokeStyle = 'rgba(255,255,255,' + (0.2 + 0.25 * glow) + ')';
-      g.lineWidth = Math.max(1, s * 0.055);
-      g.stroke();
+      g.lineWidth = Math.max(1, s * 0.055); g.stroke();
     }
-    cv._pad = pad;
-    cv._box = box;
+    cv._pad = pad; cv._box = box;
     sprites.set(key, cv);
     return cv;
   }
@@ -206,25 +182,28 @@
   /* ================= 상태 ================= */
   let dpr = 1, cell = 24;
 
+  /** G = 엔진 상태의 **화면 미러**(매 프레임 sync) + 화면 전용 연출 상태.
+   *  규칙/점수/타이머는 오직 E(엔진)에만 있다. */
   const G = {
-    state: 'ready',
-    prevState: 'ready',
+    state: 'ready',                 // ready | playing | clearing | over
     board: C.createBoard(),
-    rand: C.createRandomizer(),
-    queue: [],
-    piece: null,
-    hold: null,
-    canHold: true,
+    piece: null, hold: null, canHold: true, queue: [],
     score: 0, lines: 0, level: 1, combo: -1, b2b: false,
-    dropTimer: 0, lockTimer: 0, lockResets: 0, lowestY: 0, lastKick: 0, spinFlag: false, lastHard: false,
-    pending: null, clearTimer: 0,
+    stats: { pieces: 0, tetrises: 0, tspins: 0, pc: 0, time: 0, maxCombo: 0 },
+    pending: null,
     particles: [], popups: [], shake: 0,
-    stats: { pieces: 0, tetrises: 0, tspins: 0, pc: 0, time: 0 },
-    high: 0,
-    highAtStart: 0,
-    record: false,
+    high: 0, highAtStart: 0, record: false,
   };
   try { G.high = parseInt(localStorage.getItem('neon-tetris-high') || '0', 10) || 0; } catch (e) { G.high = 0; }
+
+  let E = null;                 // 엔진 인스턴스
+  let paused = false;
+  let opts = { mode: 'marathon', level: 1, g20: false };
+  let rec = null;               // { seed, inputs: [] } — 녹화 중
+  let playb = null;             // 리플레이 재생 상태
+  let session = null;           // 서버 세션(시드/넌스)
+  let challenge = null;         // {share, ghost, name}
+  const URL_P = new URLSearchParams(location.search);
 
   /* ================= 크기 ================= */
   function resize() {
@@ -236,10 +215,8 @@
     const w = cell * COLS, h = cell * ROWS;
     stage.style.width = (w + 2) + 'px';
     stage.style.height = (h + 2) + 'px';
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     sprites.clear();
     previews.forEach(function (p) {
       const b = p.el.getBoundingClientRect();
@@ -248,349 +225,349 @@
     });
   }
 
-  /* ================= 게임 플로우 ================= */
-  function gravityInterval() {
-    return Math.max(0.045, Math.pow(0.86, G.level - 1));
+  /* ================= 엔진 연결 ================= */
+  function sync() {
+    if (!E) return;
+    const s = E.snapshot();
+    G.state = paused ? 'paused' : s.state;
+    G.board = E.board;
+    G.piece = s.piece;
+    G.hold = s.hold; G.canHold = s.canHold; G.queue = s.queue;
+    G.score = s.score; G.lines = s.lines; G.level = s.level;
+    G.combo = s.combo; G.b2b = s.b2b;
+    G.pending = s.pending;
+    G.stats = s.stats;
+    G.ticks = s.ticks;
   }
 
-  function reset() {
-    G.board = C.createBoard();
-    G.rand = C.createRandomizer();
-    G.queue = [];
-    while (G.queue.length < 5) G.queue.push(G.rand.next());
-    G.hold = null; G.canHold = true;
-    G.score = 0; G.lines = 0; G.level = 1; G.combo = -1; G.b2b = false;
-    G.pending = null; G.clearTimer = 0;
-    G.particles.length = 0; G.popups.length = 0; G.shake = 0;
-    G.stats = { pieces: 0, tetrises: 0, tspins: 0, pc: 0, time: 0 };
-    G.dropTimer = 0; G.lockTimer = 0; G.lockResets = 0; G.spinFlag = false;
-    held.left = held.right = held.down = false;
-    spawn();
-    updateHUD();
-  }
-
-  function spawn(type) {
-    if (!type) {
-      type = G.queue.shift();
-      G.queue.push(G.rand.next());
-    }
-    const m = C.STATES[type][0];
-    G.piece = {
-      type: type,
-      rot: 0,
-      x: Math.floor((COLS - m[0].length) / 2),
-      y: -C.EMPTY_TOP[type],
-    };
-    G.dropTimer = 0; G.lockTimer = 0; G.lockResets = 0;
-    G.spinFlag = false; G.lastKick = 0; G.canHold = true; G.lastHard = false;
-    G.lowestY = G.piece.y;
-    if (C.collides(G.board, m, G.piece.x, G.piece.y)) {
-      G.piece = null;
-      gameOver();
-      return false;
-    }
-    return true;
-  }
-
-  function matrix() { return C.STATES[G.piece.type][G.piece.rot]; }
-  function grounded() { return C.collides(G.board, matrix(), G.piece.x, G.piece.y + 1); }
-
-  function resetLock() {
-    if (grounded() && G.lockResets < MAX_RESETS) {
-      G.lockTimer = 0;
-      G.lockResets++;
-    }
-  }
-
-  function move(dx) {
-    if (!G.piece || G.state !== 'playing') return false;
-    if (C.collides(G.board, matrix(), G.piece.x + dx, G.piece.y)) return false;
-    G.piece.x += dx;
-    G.spinFlag = false;
-    resetLock();
-    sfx.move();
-    return true;
-  }
-
-  function rotate(dir) {
-    if (!G.piece || G.state !== 'playing' || G.piece.type === 'O') return false;
-    const p = G.piece;
-    const from = p.rot;
-    const to = dir === 2 ? (p.rot + 2) % 4 : (p.rot + (dir > 0 ? 1 : 3)) % 4;
-    const table = dir === 2 ? C.KICKS_180 : C.kicksFor(p.type, from, to);
-    const m = C.STATES[p.type][to];
-    for (let i = 0; i < table.length; i++) {
-      if (!C.collides(G.board, m, p.x + table[i][0], p.y + table[i][1])) {
-        p.x += table[i][0];
-        p.y += table[i][1];
-        p.rot = to;
-        G.lastKick = i;
-        G.spinFlag = true;
-        resetLock();
-        sfx.rotate();
-        return true;
+  /** 연출 이벤트 → 화면. 엔진은 결정적이어야 하므로 랜덤 파티클 등은 전부 여기서 만든다. */
+  function showEvents(evs) {
+    for (let i = 0; i < evs.length; i++) {
+      const e = evs[i];
+      switch (e.type) {
+        case 'move': sfx.move(); break;
+        case 'rotate': sfx.rotate(); break;
+        case 'hold': sfx.hold(); break;
+        case 'lock': sfx.lock(); break;
+        case 'harddrop': {
+          sfx.drop();
+          G.shake = Math.min(7, 1.5 + e.dist * 0.35);
+          const col = C.COLORS[e.piece] || '#ffffff';
+          for (let i = 0; i < e.cells.length; i++) {
+            const cc = e.cells[i];
+            const px = (e.x + cc[0] + 0.5) * cell;
+            const y0 = Math.max(0, e.fromY + cc[1]);
+            const y1 = e.landY + cc[1];
+            for (let y = y0; y < y1; y++) {
+              if (Math.random() > 0.35) continue;
+              G.particles.push({
+                x: px, y: (y + 0.5) * cell, vx: (Math.random() - 0.5) * 40, vy: -Math.random() * 60,
+                life: 0.25, max: 0.25, size: cell * 0.16, color: col,
+              });
+            }
+          }
+          break;
+        }
+        case 'scored':
+          if (e.lines > 0) sfx.clear(e.lines);
+          if (e.perfect) sfx.pc();
+          break;
+        case 'clearing':
+          G.shake = Math.max(G.shake, 2 + e.lines * 1.8);
+          spawnClearParticles(e.rows);
+          break;
+        case 'level':
+          sfx.level();
+          stage.classList.remove('levelup');
+          void stage.offsetWidth;
+          stage.classList.add('levelup');
+          break;
+        case 'popup':
+          addPopup(e.text, e.sub, e.color, !!e.small);
+          break;
+        case 'gameover':
+          onFinish(e.reason);
+          break;
+        case 'spawnblocked':
+          break;
       }
     }
-    return false;
   }
 
-  function tryDown(countAsSoft) {
-    if (!G.piece || C.collides(G.board, matrix(), G.piece.x, G.piece.y + 1)) return false;
-    G.piece.y++;
-    G.spinFlag = false;
-    if (G.piece.y > G.lowestY) {
-      G.lowestY = G.piece.y;
-      G.lockResets = 0;
-      G.lockTimer = 0;
-    }
-    if (countAsSoft) G.score += 1;
-    return true;
-  }
-
-  function hardDrop() {
-    if (!G.piece || G.state !== 'playing') return;
-    const m = matrix();
-    let dist = 0;
-    const startY = G.piece.y;
-    while (!C.collides(G.board, m, G.piece.x, G.piece.y + 1)) { G.piece.y++; dist++; }
-    G.lastHard = true;
-    if (dist) {
-      G.score += dist * 2;
-      // 하드 드롭은 마지막 회전을 유지 → T-스핀 인정
-      // 착지 트레일
-      const cells = C.cellsOf(G.piece.type, G.piece.rot);
-      cells.forEach(function (c) {
-        const px = (G.piece.x + c[0] + 0.5) * cell;
-        for (let y = startY; y < G.piece.y; y++) {
-          if (Math.random() < 0.35) {
-            G.particles.push({
-              x: px, y: (y + 0.5) * cell, vx: (Math.random() - 0.5) * 40, vy: -Math.random() * 60,
-              life: 0.25, max: 0.25, size: cell * 0.16, color: C.COLORS[G.piece.type],
-            });
-          }
+  function spawnClearParticles(rows) {
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      for (let x = 0; x < COLS; x++) {
+        const t = G.board[row][x] || 'I';
+        for (let i = 0; i < 3; i++) {
+          G.particles.push({
+            x: (x + 0.2 + Math.random() * 0.6) * cell,
+            y: (row + 0.2 + Math.random() * 0.6) * cell,
+            vx: (Math.random() - 0.5) * 320,
+            vy: -Math.random() * 260 - 40,
+            life: 0.5 + Math.random() * 0.4, max: 0.9,
+            size: cell * (0.14 + Math.random() * 0.16),
+            color: C.COLORS[t],
+          });
         }
-      });
-    }
-    G.shake = Math.min(7, 1.5 + dist * 0.35);
-    sfx.drop();
-    lockPiece();
-  }
-
-  function holdPiece() {
-    if (!G.piece || !G.canHold || (G.state !== 'playing')) return;
-    const cur = G.piece.type;
-    const stash = G.hold;
-    G.hold = cur;
-    if (stash) {
-      G.piece = null;
-      spawn(stash);
-    } else {
-      G.piece = null;
-      spawn();
-    }
-    G.canHold = false;
-    sfx.hold();
-  }
-
-  function lockPiece() {
-    const p = G.piece;
-    if (!p) return;
-    const spin = G.spinFlag ? C.tspinKind(G.board, p, G.lastKick) : 'none';
-
-    // 상단 이탈 검사
-    let topped = false;
-    C.cellsOf(p.type, p.rot).forEach(function (c) {
-      if (p.y + c[1] < 0) topped = true;
-    });
-
-    C.merge(G.board, p);
-    G.piece = null;
-    G.stats.pieces++;
-    sfx.lock();
-
-    const rows = C.fullRows(G.board);
-    const n = rows.length;
-    const perfect = n > 0 && C.wouldBePerfect(G.board, rows);
-
-    G.combo = n > 0 ? G.combo + 1 : -1;
-    const res = C.scoreClear({
-      lines: n, spin: spin, combo: G.combo, level: G.level,
-      perfect: perfect, b2b: G.b2b, hardDrop: !!G.lastHard,
-    });
-    G.score += res.points;
-
-    if (n > 0) {
-      if (n === 4) G.stats.tetrises++;
-      if (spin !== 'none') G.stats.tspins++;
-      if (perfect) G.stats.pc++;
-      G.b2b = res.difficult;
-    } else if (spin !== 'none') {
-      G.stats.tspins++;
-    }
-
-    if (res.label) {
-      const color = n >= 4 || perfect ? '#ffd83d' : spin !== 'none' ? '#c05bff' : '#35e5f5';
-      addPopup(res.label, '+' + res.points.toLocaleString(), color);
-    }
-    if (perfect) sfx.pc();
-    if (G.combo > 0) addPopup('COMBO x' + G.combo, '', '#3ee08f', true);
-
-    if (n > 0) {
-      G.state = 'clearing';
-      G.pending = { rows: rows, lines: n };
-      G.clearTimer = CLEAR_TIME;
-      rows.forEach(function (row) {
-        for (let x = 0; x < COLS; x++) {
-          const t = G.board[row][x] || 'I';
-          for (let i = 0; i < 3; i++) {
-            G.particles.push({
-              x: (x + 0.2 + Math.random() * 0.6) * cell,
-              y: (row + 0.2 + Math.random() * 0.6) * cell,
-              vx: (Math.random() - 0.5) * 320,
-              vy: -Math.random() * 260 - 40,
-              life: 0.5 + Math.random() * 0.4,
-              max: 0.9,
-              size: cell * (0.14 + Math.random() * 0.16),
-              color: C.COLORS[t],
-            });
-          }
-        }
-      });
-      G.shake = Math.max(G.shake, 2 + n * 1.8);
-      if (!perfect) sfx.clear(n);
-    }
-
-    if (topped) { gameOver(); return; }
-    if (n === 0) afterLock();
-  }
-
-  function afterLock() {
-    if (G.state === 'over') return;
-    G.state = 'playing';
-    spawn();
-  }
-
-  function finalizeClear() {
-    C.removeRows(G.board, G.pending.rows);
-    G.lines += G.pending.lines;
-    const lv = Math.min(MAX_LEVEL, Math.floor(G.lines / 10) + 1);
-    if (lv > G.level) {
-      G.level = lv;
-      sfx.level();
-      stage.classList.remove('levelup');
-      void stage.offsetWidth;
-      stage.classList.add('levelup');
-      addPopup('LEVEL ' + G.level, '', '#35e5f5', true);
-    }
-    G.pending = null;
-    afterLock();
-    updateHUD();
-  }
-
-  function start() {
-    G.highAtStart = G.high;
-    G.record = false;
-    reset();
-    G.state = 'playing';
-    hideOverlay();
-    sfx.resume();
-  }
-
-  function togglePause(force) {
-    if (G.state === 'playing' || G.state === 'clearing') {
-      G.prevState = G.state;
-      G.state = 'paused';
-      showOverlay('paused');
-      held.left = held.right = held.down = false;
-    } else if (G.state === 'paused' && !force) {
-      G.state = G.prevState === 'clearing' ? 'clearing' : 'playing';
-      hideOverlay();
+      }
     }
   }
 
-  function gameOver() {
-    G.state = 'over';
-    G.piece = null;
-    if (G.score > G.high) G.high = G.score;
-    lastHighSave = 0;
-    saveHigh();
-    G.shake = 8;
-    sfx.over();
-    showOverlay('over');
-    updateHUD();
-  }
-
-  /* ================= 팝업/입력 ================= */
-  const held = { left: false, right: false, down: false };
-  let dasT = 0, arrT = 0;
-
+  /* ================= 팝업 ================= */
   function addPopup(text, sub, color, small) {
     G.popups.push({
-      text: text, sub: sub || '', color: color || '#ffffff',
+      text: L ? L.label(text) : text, sub: sub || '', color: color || '#ffffff',
       t: 0, life: small ? 0.8 : 1.15, small: !!small,
     });
     if (G.popups.length > 5) G.popups.shift();
   }
 
-  /* ================= 업데이트 ================= */
-  function update(dt) {
-    if (G.state === 'playing' || G.state === 'clearing') G.stats.time += dt;
+  /* ================= 입력 ================= */
+  const held = { left: false, right: false, down: false };
+  const ACT = { ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'down', ArrowUp: 'cw', x: 'cw', X: 'cw', z: 'ccw', Z: 'ccw', a: 'flip', A: 'flip', ' ': 'hard', c: 'hold', C: 'hold', Shift: 'hold' };
 
+  /** 입력 하나 = 엔진에 전달 + 리플레이에 기록(같은 틱에 적용됨). 재생 중에는 기록하지 않는다. */
+  function send(action, kind) {
+    if (!E || paused || G.state === 'ready' || G.state === 'over') return;
+    if (rec && kind !== undefined) rec.inputs.push({ t: E.ticks + 1, a: action, k: kind });
+    if (kind === 0) E.release(action); else E.press(action);
+  }
+
+  function pressKey(action) {
+    if (action === 'left' || action === 'right') {
+      held[action] = true;
+      held[action === 'left' ? 'right' : 'left'] = false;
+      send(action, 1);
+      return;
+    }
+    if (action === 'down') { held.down = true; send('down', 1); return; }
+    if (action === 'hard') {
+      if (G.state === 'ready' || G.state === 'over') { start(); return; }
+      send('hard', 1); return;
+    }
+    if (action === 'hold') { send('hold', 1); return; }
+    send(action, 1);
+  }
+  function releaseKey(action) {
+    if (action === 'left' || action === 'right' || action === 'down') {
+      if (!held[action]) return;
+      held[action] = false;
+      send(action, 0);
+    }
+  }
+  function releaseAll() {
+    ['left', 'right', 'down'].forEach(function (a) {
+      if (held[a]) { held[a] = false; send(a, 0); }
+    });
+  }
+
+  const KEYMAP = {
+    ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'down',
+    ArrowUp: 'cw', x: 'cw', X: 'cw', z: 'ccw', Z: 'ccw', a: 'flip', A: 'flip',
+    ' ': 'hard', c: 'hold', C: 'hold', Shift: 'hold',
+    p: 'pause', P: 'pause', Escape: 'pause',
+    r: 'restart', R: 'restart', m: 'mute', M: 'mute', Enter: 'start',
+  };
+
+  window.addEventListener('keydown', function (e) {
+    const k = e.key;
+    if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' '].indexOf(k) >= 0) e.preventDefault();
+    if (e.repeat) return;
+    if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+    const action = KEYMAP[k];
+    if (!action) return;
+    sfx.resume();
+    if (action === 'pause') { togglePause(); return; }
+    if (action === 'restart') { start(); return; }
+    if (action === 'mute') { toggleMute(); return; }
+    if (action === 'start') {
+      if (G.state === 'ready' || G.state === 'over' || paused) start();
+      return;
+    }
+    if (G.state === 'ready') { start(); }
+    pressKey(action);
+  });
+  window.addEventListener('keyup', function (e) {
+    const a = ACT[e.key];
+    if (a) releaseKey(a);
+  });
+  window.addEventListener('blur', function () {
+    releaseAll();
+    if (G.state === 'playing' || G.state === 'clearing') setPause(true);
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { releaseAll(); if (G.state === 'playing' || G.state === 'clearing') setPause(true); }
+  });
+
+  /* ================= 게임 플로우 ================= */
+  function localSeed() {
+    let s = '';
+    const b = new Uint8Array(9);
+    (window.crypto || window.msCrypto).getRandomValues(b);
+    for (let i = 0; i < b.length; i++) s += ('0' + b[i].toString(36)).slice(-2);
+    return s.replace(/[^0-9a-z]/g, '') || String(Date.now());
+  }
+
+  function engineFor(seed) {
+    E = EN.create({ seed: seed, mode: opts.mode, level: opts.level, g20: opts.g20 });
+    rec = { seed: seed, mode: opts.mode, level: opts.level, g20: opts.g20, startedAt: Date.now(), inputs: [] };
+    playb = null;
+    paused = false;
+    G.particles.length = 0; G.popups.length = 0; G.shake = 0;
+    G.record = false; G.highAtStart = G.high;
+    sync();
+    E.drainEvents();
+  }
+
+  /** 서버 세션(1회용 시드) 발급 → 실패하면 오프라인 판 (기록 제출만 비활성) */
+  async function start() {
+    if (playb) { stopPlayback(); }
+    hideOverlay();
+    sfx.resume();
+    const sess = await CL.session(opts);
+    session = sess;
+    engineFor(sess ? sess.seed : localSeed());
+    updateGoal();
+    updateHUD();
+  }
+
+  function setPause(v) {
+    if (!E || G.state === 'over' || G.state === 'ready') return;
+    paused = v;
+    releaseAll();
+    sync();
+    if (paused) showOverlay('paused'); else hideOverlay();
+  }
+  function togglePause() {
+    if (playb) { playb.paused = !playb.paused; return; }
+    if (G.state === 'ready' || G.state === 'over') return;
+    setPause(!paused);
+  }
+
+  /** 판 종료 → 리플레이 생성 → 제출 UI */
+  function onFinish(reason) {
+    releaseAll();
+    sync();
+    if (G.score > G.high) { G.high = G.score; saveHigh(true); }
+    if (playb) return;                    // 재생 중이면 제출하지 않음
+    sfx.over();
+    const packed = RP.pack({
+      mode: rec.mode, level: rec.level, g20: rec.g20, seed: rec.seed,
+      ticks: E.ticks, score: E.score, lines: E.lines, pieces: E.pieces, hash: E.boardHash(),
+      inputs: rec.inputs,
+    });
+    G.lastPacked = packed;
+    G.lastReason = reason;
+    CL.rememberLocal(rec, packed, E.result());
+    showOverlay('over');
+    CL.onSubmitReady({
+      packed: packed, result: E.result(), session: session,
+      challengeOf: challenge ? challenge.share : null,
+      box: $('submitBox'),
+    });
+  }
+
+  /* ================= 리플레이 재생 / 도전 ================= */
+  async function startPlayback(share, autoplay) {
+    const data = await CL.getReplay(share);
+    if (!data) { showOverlay('ready'); return; }
+    const rep = RP.unpack(data.replay);
+    E = EN.create({ seed: rep.seed, mode: rep.mode, level: rep.level, g20: rep.g20 });
+    rec = null;
+    paused = false;
+    G.particles.length = 0; G.popups.length = 0; G.shake = 0;
+    playb = {
+      share: share, rep: rep, data: data, cursor: RP.cursor(rep), speed: 1,
+      paused: autoplay === false, total: rep.ticks,
+    };
+    hideOverlay();
+    CL.showReplayBar(playb, {
+      onSeek: function (tick) { seekTo(tick); },
+      onSpeed: function (s) { playb.speed = s; },
+      onExit: function () { stopPlayback(); },
+      onRestart: function () { seekTo(0); },
+    });
+    CL.playbackPing(share);
+    updateGoal(data);
+    updateHUD();
+  }
+
+  function seekTo(tick) {
+    if (!playb) return;
+    // 처음부터 다시 계산(결정적이라 이 방법이 가장 단순하고 정확하다)
+    E = EN.create({ seed: playb.rep.seed, mode: playb.rep.mode, level: playb.rep.level, g20: playb.rep.g20 });
+    playb.cursor = RP.cursor(playb.rep);
+    G.particles.length = 0; G.popups.length = 0;
+    let guard = 0;
+    while (E.ticks < tick && E.state !== 'over' && guard++ < 2000000) {
+      E.setBuffer(playb.cursor.take(E.ticks + 1));
+      E.tick();
+      E.drainEvents();                       // 되감기 중 연출은 버린다
+    }
+    playb.paused = false;
+    sync();
+  }
+
+  function stopPlayback() {
+    playb = null;
+    CL.hideReplayBar();
+    opts = { mode: 'marathon', level: 1, g20: false };
+    E = null; rec = null;
+    G.state = 'ready';
+    showOverlay('ready');
+  }
+
+  /** 도전: 상대 기록과 같은 보드 설정으로 새 판 + 고스트 레이스 */
+  async function startChallenge(share) {
+    const data = await CL.getReplay(share);
+    if (!data) return;
+    challenge = { share: share, ghost: data.ghost || [], name: data.displayName || data.codename || '?', board: data.board };
+    opts = { mode: data.mode, level: data.level, g20: data.g20 };
+    CL.showRaceBar(challenge);
+    await start();
+  }
+
+  /* ================= 루프 ================= */
+  let last = performance.now(), acc = 0;
+  function frame(now) {
+    let dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.25) dt = 0.25;          // 프레임이 밀려도 게임 시간을 버리지 않는다
+
+    visuals(dt);
+
+    if (E && (paused ? false : true) && (playb ? !playb.paused : G.state !== 'ready')) {
+      acc += dt * (playb ? playb.speed : 1);
+      let guard = 0;
+      while (acc >= EN.TICK && guard++ < 24) {
+        acc -= EN.TICK;
+        if (playb) E.setBuffer(playb.cursor.take(E.ticks + 1));
+        E.tick();
+        showEvents(E.drainEvents());
+        if (playb && E.state === 'over') { playb.paused = true; CL.replayFinished(); }
+      }
+      if (challenge && E) CL.updateRace(E);          // 도전 중이면 매 프레임 고스트와 비교
+      sync();
+      if (playb) CL.updateProgress(E.ticks / Math.max(1, playb.total));
+      updateHUD();
+    }
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  function visuals(dt) {
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 22);
-
-    // 파티클
     for (let i = G.particles.length - 1; i >= 0; i--) {
       const p = G.particles[i];
       p.life -= dt;
       if (p.life <= 0) { G.particles.splice(i, 1); continue; }
-      p.vy += 1500 * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      p.vy += 1500 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
     }
-    // 팝업
     for (let i = G.popups.length - 1; i >= 0; i--) {
       const q = G.popups[i];
       q.t += dt;
       if (q.t >= q.life) G.popups.splice(i, 1);
-    }
-
-    if (G.state === 'clearing') {
-      G.clearTimer -= dt;
-      if (G.clearTimer <= 0) finalizeClear();
-      return;
-    }
-    if (G.state !== 'playing' || !G.piece) return;
-
-    // 좌우 DAS / ARR
-    const dir = (held.left ? -1 : 0) + (held.right ? 1 : 0);
-    if (dir !== 0) {
-      dasT += dt;
-      if (dasT >= DAS) {
-        arrT += dt;
-        let guard = 0;
-        while (arrT >= ARR && guard++ < 12) {
-          arrT -= ARR;
-          if (!move(dir)) break;
-        }
-      }
-    }
-
-    // 중력
-    const gi = gravityInterval();
-    const interval = held.down ? Math.min(gi, SOFT) : gi;
-    G.dropTimer += dt;
-    let guard = 0;
-    while (G.dropTimer >= interval && guard++ < 30) {
-      G.dropTimer -= interval;
-      if (!tryDown(held.down)) { G.dropTimer = 0; break; }
-    }
-
-    // 락 딜레이
-    if (grounded()) {
-      G.lockTimer += dt;
-      if (G.lockTimer >= LOCK) lockPiece();
-    } else {
-      G.lockTimer = 0;
     }
   }
 
@@ -600,8 +577,7 @@
     g.addColorStop(0, 'rgba(255,255,255,0.04)');
     g.addColorStop(0.45, 'rgba(255,255,255,0.008)');
     g.addColorStop(1, 'rgba(255,255,255,0.02)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
 
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
     ctx.lineWidth = 1;
@@ -610,14 +586,10 @@
     for (let y = 1; y < ROWS; y++) { ctx.moveTo(0, y * cell + 0.5); ctx.lineTo(w, y * cell + 0.5); }
     ctx.stroke();
 
-    // 위험 라인
     ctx.save();
     ctx.setLineDash([4, 6]);
-    ctx.strokeStyle = 'rgba(255,92,122,0.22)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, cell * 4.5); ctx.lineTo(w, cell * 4.5);
-    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,92,122,0.22)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, cell * 4.5); ctx.lineTo(w, cell * 4.5); ctx.stroke();
     ctx.restore();
   }
 
@@ -629,12 +601,9 @@
   }
 
   function drawPreviews() {
-    // hold
-    const hp = previews[0];
-    drawPreview(hp, G.hold, G.canHold);
+    drawPreview(previews[0], G.hold, G.canHold);
     for (let i = 0; i < 5; i++) drawPreview(previews[i + 1], G.queue[i], true, i === 0);
   }
-
   function drawPreview(p, type, enabled, big) {
     const g = p.ctx;
     const w = p.el.width / dpr, h = p.el.height / dpr;
@@ -647,9 +616,7 @@
     const px = (w - box.w * s) / 2 - box.minX * s;
     const py = (h - box.h * s) / 2;
     g.globalAlpha = enabled ? 1 : 0.35;
-    C.cellsOf(type, 0).forEach(function (c) {
-      drawCell(g, type, px + c[0] * s, py + c[1] * s, s, 'stack');
-    });
+    C.cellsOf(type, 0).forEach(function (c) { drawCell(g, type, px + c[0] * s, py + c[1] * s, s, 'stack'); });
     g.globalAlpha = 1;
   }
 
@@ -658,19 +625,15 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    if (G.shake > 0.05) {
-      ctx.translate((Math.random() * 2 - 1) * G.shake, (Math.random() * 2 - 1) * G.shake);
-    }
+    if (G.shake > 0.05) ctx.translate((Math.random() * 2 - 1) * G.shake, (Math.random() * 2 - 1) * G.shake);
 
     fieldBg(w, h);
 
     const clearing = G.state === 'clearing' && G.pending;
-    const ct = clearing ? 1 - G.clearTimer / CLEAR_TIME : 0;
+    const ct = clearing ? 1 - (E ? E.clearT : 0) / EN.CLEAR_TICKS : 0;
     const rowSet = {};
     if (clearing) G.pending.rows.forEach(function (r) { rowSet[r] = true; });
 
-    // 쌓인 블록
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const t = G.board[y][x];
@@ -689,20 +652,15 @@
       }
     }
 
-    // 고스트 + 현재 조각
     if (G.piece && (G.state === 'playing' || G.state === 'paused')) {
-      let gy = G.piece.y;
-      while (!C.collides(G.board, matrix(), G.piece.x, gy + 1)) gy++;
+      const gy = E.ghostY();
       const cells = C.cellsOf(G.piece.type, G.piece.rot);
       if (gy !== G.piece.y) {
         cells.forEach(function (c) {
           if (gy + c[1] >= 0) drawCell(ctx, G.piece.type, (G.piece.x + c[0]) * cell, (gy + c[1]) * cell, cell, 'ghost');
         });
-        // 접지 하이라이트
         ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        cells.forEach(function (c) {
-          ctx.fillRect((G.piece.x + c[0]) * cell, (gy + c[1]) * cell, cell, 2);
-        });
+        cells.forEach(function (c) { ctx.fillRect((G.piece.x + c[0]) * cell, (gy + c[1]) * cell, cell, 2); });
       }
       cells.forEach(function (c) {
         const by = G.piece.y + c[1];
@@ -711,19 +669,14 @@
       });
     }
 
-    // 파티클
     G.particles.forEach(function (p) {
       const a = Math.max(0, Math.min(1, p.life / p.max));
       ctx.globalAlpha = a;
-      ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 8 * a;
+      ctx.fillStyle = p.color; ctx.shadowColor = p.color; ctx.shadowBlur = 8 * a;
       ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     });
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
 
-    // 팝업
     let py = h * 0.34;
     G.popups.forEach(function (q) {
       const k = q.t / q.life;
@@ -732,8 +685,7 @@
       ctx.globalAlpha = a;
       ctx.textAlign = 'center';
       ctx.font = '800 ' + size.toFixed(1) + 'px ' + MONO;
-      ctx.shadowColor = q.color;
-      ctx.shadowBlur = 22 * a;
+      ctx.shadowColor = q.color; ctx.shadowBlur = 22 * a;
       ctx.fillStyle = q.color;
       const yy = py - k * cell * 0.9;
       ctx.fillText(q.text, w / 2, yy);
@@ -745,10 +697,8 @@
       }
       py -= size * 1.5;
     });
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
 
-    // 위쪽 위험 글로우
     const sh = stackHeight();
     stage.classList.toggle('danger', sh >= ROWS - 5);
     if (sh >= ROWS - 5) {
@@ -756,8 +706,7 @@
       const k = 0.14 + 0.08 * Math.sin(performance.now() / 200);
       dg.addColorStop(0, 'rgba(255,92,122,' + k + ')');
       dg.addColorStop(1, 'rgba(255,92,122,0)');
-      ctx.fillStyle = dg;
-      ctx.fillRect(0, 0, w, cell * 4);
+      ctx.fillStyle = dg; ctx.fillRect(0, 0, w, cell * 4);
     }
 
     drawPreviews();
@@ -766,22 +715,36 @@
 
   /* ================= HUD ================= */
   let prevScore = -1, pulseTimer = 0, lastHighSave = 0;
-  function saveHigh() {
-    const now = performance.now();
-    if (now - lastHighSave < 1200) return;
-    lastHighSave = now;
-    try { localStorage.setItem('neon-tetris-high', String(G.high)); } catch (e) {}
+  function saveHigh(force) {
+    const t = performance.now();
+    if (!force && t - lastHighSave < 1200) return;
+    lastHighSave = t;
+    try { localStorage.setItem('neon-tetris-high', String(G.high)); } catch (e) { }
   }
-  function fmtTime(t) {
-    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  function fmtTime(sec) {
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
     return m + ':' + (s < 10 ? '0' : '') + s;
   }
-  function updateHUD() {
-    // 최고 점수 실시간 갱신
-    if (G.score > G.high) {
-      G.high = G.score;
-      saveHigh();
+  function fmtTicks(ticks) { return fmtTime(ticks * EN.TICK); }
+
+  function updateGoal(data) {
+    const M = EN.MODES[opts.mode];
+    const src = data ? data : null;
+    if (!M) return;
+    if (M.targetLines) {
+      goalWrap.style.display = '';
+      goalEl.textContent = Math.min(M.targetLines, G.lines) + ' / ' + M.targetLines + ' L';
+    } else if (M.timeLimit) {
+      goalWrap.style.display = '';
+      const left = Math.max(0, (M.timeLimit - (src ? src.ticks : (E ? E.ticks : 0))) * EN.TICK);
+      goalEl.textContent = (L ? L.t('ultra.left') : '남은 시간') + ' ' + fmtTime(left);
+    } else {
+      goalWrap.style.display = 'none';
     }
+  }
+
+  function updateHUD() {
+    if (G.score > G.high) { G.high = G.score; saveHigh(); }
     if (!G.record && G.highAtStart > 0 && G.score > G.highAtStart && G.state === 'playing') {
       G.record = true;
       addPopup('NEW RECORD', '', '#ffd83d', true);
@@ -798,12 +761,10 @@
     statAps.textContent = G.stats.time > 0.5 ? Math.round(G.score / G.stats.time).toLocaleString() : '0';
     statTetris.textContent = G.stats.tetrises;
     statTspin.textContent = G.stats.tspins;
+    updateGoal();
 
     if (G.score !== prevScore) {
-      if (prevScore >= 0) {
-        scoreEl.classList.add('pulse');
-        pulseTimer = 0.13;
-      }
+      if (prevScore >= 0) { scoreEl.classList.add('pulse'); pulseTimer = 0.13; }
       prevScore = G.score;
     }
     if (pulseTimer > 0) {
@@ -811,14 +772,12 @@
       if (pulseTimer <= 0) scoreEl.classList.remove('pulse');
     }
 
-    // 칩 (RECORD / B2B / COMBO)
     const want = [];
-    if (G.record) want.push('NEW RECORD \u2605');
-    if (G.b2b) want.push('B2B \u00d71.5');
-    if (G.combo > 0) want.push('COMBO \u00d7' + G.combo);
-    const cur = chipsEl.dataset.state || '';
+    if (G.record) want.push('NEW RECORD ★');
+    if (G.b2b) want.push('B2B ×1.5');
+    if (G.combo > 0) want.push('COMBO ×' + G.combo);
     const key = want.join(',');
-    if (key !== cur) {
+    if (key !== (chipsEl.dataset.state || '')) {
       chipsEl.dataset.state = key;
       chipsEl.innerHTML = want.map(function (t) {
         return '<span class="chip' + (t.indexOf('COMBO') === 0 ? ' combo' : '') + '">' + t + '</span>';
@@ -829,24 +788,24 @@
   /* ================= 오버레이 ================= */
   function hideOverlay() { overlay.classList.add('hidden'); }
   function showOverlay(kind) {
-    let title = '', sub = '', btn = 'START', stats = '';
+    let title = '', sub = '', btn = L ? L.t('ui.start') : 'START', stats = '';
     if (kind === 'ready') {
       title = 'NEON TETRIS';
-      sub = '줄을 지워 점수를 쌓아보세요';
-      btn = 'START';
+      sub = L ? L.t('ov.ready') : '';
+      btn = L ? L.t('ui.start') : 'START';
     } else if (kind === 'paused') {
       title = 'PAUSED';
-      sub = '일시정지 중';
-      btn = 'RESUME';
+      sub = L ? L.t('ov.paused') : '';
+      btn = L ? L.t('ui.resume') : 'RESUME';
     } else if (kind === 'over') {
-      title = 'GAME OVER';
-      sub = G.record ? '★ 새 최고 점수!' : (G.highAtStart === 0 ? '첫 최고 점수 등록!' : '다시 도전해볼까요?');
-      btn = 'RETRY';
+      title = L ? L.t('ov.over') : 'GAME OVER';
+      sub = G.record ? (L ? L.t('ov.newbest') : '') : (G.highAtStart === 0 ? (L ? L.t('ov.firstbest') : '') : (L ? L.t('ov.retry') : ''));
+      btn = L ? L.t('ui.retry') : 'RETRY';
       stats = [
         ['SCORE', G.score.toLocaleString()],
         ['LEVEL', G.level],
         ['LINES', G.lines],
-        ['TIME', fmtTime(G.stats.time)],
+        ['TIME', fmtTicks(E ? E.ticks : 0)],
         ['TETRIS', G.stats.tetrises],
         ['T-SPIN', G.stats.tspins],
         ['BEST', G.high.toLocaleString()],
@@ -859,37 +818,7 @@
     overlay.classList.remove('hidden');
   }
 
-  /* ================= 입력 ================= */
-  const KEYMAP = {
-    ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'down',
-    ArrowUp: 'cw', x: 'cw', X: 'cw',
-    z: 'ccw', Z: 'ccw',
-    a: 'flip', A: 'flip',
-    ' ': 'drop',
-    c: 'hold', C: 'hold', Shift: 'hold',
-    p: 'pause', P: 'pause', Escape: 'pause',
-    r: 'restart', R: 'restart',
-    m: 'mute', M: 'mute',
-    Enter: 'start',
-  };
-
-  function act(action) {
-    switch (action) {
-      case 'left': case 'right': case 'down': break;
-      case 'cw': rotate(1); break;
-      case 'ccw': rotate(-1); break;
-      case 'flip': rotate(2); break;
-      case 'drop': if (G.state === 'ready') start(); else if (G.state === 'over') start(); else hardDrop(); break;
-      case 'hold': holdPiece(); break;
-      case 'pause': if (G.state === 'playing' || G.state === 'clearing' || G.state === 'paused') togglePause(); break;
-      case 'restart': start(); break;
-      case 'start':
-        if (G.state === 'ready' || G.state === 'over' || G.state === 'paused') start();
-        break;
-      case 'mute': toggleMute(); break;
-    }
-  }
-
+  /* ================= 버튼/터치 ================= */
   function toggleMute() {
     sfx.init();
     sfx.muted = !sfx.muted;
@@ -897,117 +826,157 @@
     b.classList.toggle('off', sfx.muted);
     b.textContent = sfx.muted ? '✕' : '♪';
   }
-
-  window.addEventListener('keydown', function (e) {
-    const k = e.key;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' '].indexOf(k) >= 0) e.preventDefault();
-    if (e.repeat) return;
-    const action = KEYMAP[k];
-    if (!action) return;
-    sfx.resume();
-    if (action === 'left' || action === 'right') {
-      held[action] = true;
-      dasT = 0; arrT = 0;
-      move(action === 'left' ? -1 : 1);
-      return;
-    }
-    if (action === 'down') { held.down = true; G.dropTimer = Math.max(G.dropTimer, SOFT); return; }
-    act(action);
-  });
-
-  window.addEventListener('keyup', function (e) {
-    const action = KEYMAP[e.key];
-    if (action === 'left' || action === 'right' || action === 'down') held[action] = false;
-  });
-
-  window.addEventListener('blur', function () {
-    held.left = held.right = held.down = false;
-    if (G.state === 'playing' || G.state === 'clearing') togglePause(true);
-  });
-  document.addEventListener('visibilitychange', function () {
-    if (document.hidden && (G.state === 'playing' || G.state === 'clearing')) togglePause(true);
-  });
-
   ovBtn.addEventListener('click', function () {
     sfx.resume();
-    if (G.state === 'paused') togglePause();
-    else start();
+    if (paused) setPause(false);
+    else if (G.state === 'ready' || G.state === 'over') start();
   });
   $('pauseBtn').addEventListener('click', function () { togglePause(); });
   $('restartBtn').addEventListener('click', function () { sfx.resume(); start(); });
   $('muteBtn').addEventListener('click', toggleMute);
 
-  /* ---------- 터치 ---------- */
   const touchBtns = [
-    { label: '◀', act: 'left', repeat: true },
-    { label: '▶', act: 'right', repeat: true },
+    { label: '◀', act: 'left', hold: true },
+    { label: '▶', act: 'right', hold: true },
     { label: '⤓', act: 'down', hold: true },
     { label: '⟲', act: 'ccw' },
     { label: '⟳', act: 'cw' },
     { label: 'HOLD', act: 'hold', small: true },
-    { label: 'DROP', act: 'drop', small: true },
+    { label: 'DROP', act: 'hard', small: true },
   ];
-  const touchRoot = $('touch');
-  touchBtns.forEach(function (b) {
-    const el = document.createElement('button');
-    el.textContent = b.label;
-    if (b.small) el.style.fontSize = '11px';
-    let to = null;
-    const stop = function () {
-      if (to) { clearTimeout(to); to = null; }
-      if (b.act === 'left' || b.act === 'right') held[b.act] = false;
-      if (b.act === 'down') held.down = false;
-    };
-    const begin = function (e) {
-      e.preventDefault();
-      sfx.resume();
-      if (G.state === 'ready' || G.state === 'over') { start(); return; }
-      if (b.act === 'left' || b.act === 'right') {
-        held[b.act] = true; dasT = 0; arrT = 0;
-        move(b.act === 'left' ? -1 : 1);
-        to = setTimeout(function () { dasT = DAS; }, DAS * 1000);
-      } else if (b.act === 'down') {
-        held.down = true;
-      } else {
-        act(b.act);
-      }
-    };
-    el.addEventListener('pointerdown', begin);
-    el.addEventListener('pointerup', stop);
-    el.addEventListener('pointerleave', stop);
-    el.addEventListener('pointercancel', stop);
-    touchRoot.appendChild(el);
-  });
-  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-    document.body.classList.add('touch-mode');
-  }
+  (function buildTouch() {
+    const root = $('touch');
+    touchBtns.forEach(function (b) {
+      const el = document.createElement('button');
+      el.textContent = b.label;
+      if (b.small) el.classList.add('txt');
+      el.setAttribute('aria-label', b.act);
+      const stop = function (e) { e.preventDefault(); if (b.hold) releaseKey(b.act); };
+      const begin = function (e) {
+        e.preventDefault();
+        sfx.resume();
+        if (G.state === 'ready' || G.state === 'over') { start(); return; }
+        if (paused) { setPause(false); return; }
+        pressKey(b.act);
+      };
+      el.addEventListener('pointerdown', begin);
+      el.addEventListener('pointerup', stop);
+      el.addEventListener('pointerleave', stop);
+      el.addEventListener('pointercancel', stop);
+      root.appendChild(el);
+    });
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) document.body.classList.add('touch-mode');
+  })();
 
-  /* ================= 루프 ================= */
-  let last = performance.now();
-  function frame(now) {
-    let dt = (now - last) / 1000;
-    last = now;
-    if (dt > 0.1) dt = 0.1;
-    update(dt);
-    render();
-    updateHUD();
-    requestAnimationFrame(frame);
+  /* ================= 모드 선택 ================= */
+  function renderModes() {
+    const wrap = $('modeChips');
+    if (!wrap) return;
+    wrap.innerHTML = Object.keys(EN.MODES).map(function (m) {
+      return '<button class="mode' + (opts.mode === m ? ' on' : '') + '" data-m="' + m + '">' +
+        (L ? L.t('mode.' + m) : EN.MODES[m].name) + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(wrap.children, function (el) {
+      el.addEventListener('click', function () {
+        opts.mode = el.dataset.m;
+        renderModes();
+        updateGoal();
+        try { localStorage.setItem('neon-tetris-mode', opts.mode); } catch (e) { }
+      });
+    });
+    const lv = $('levelSel');
+    if (lv) {
+      lv.value = String(opts.level);
+      const g20 = $('g20Chk');
+      if (g20) g20.checked = opts.g20;
+    }
+  }
+  (function bindSettings() {
+    const lv = $('levelSel'), g20 = $('g20Chk');
+    if (lv) {
+      for (let i = 1; i <= EN.MAX_LEVEL; i++) {
+        const o = document.createElement('option');
+        o.value = String(i); o.textContent = 'Lv ' + i;
+        lv.appendChild(o);
+      }
+      lv.addEventListener('change', function () {
+        opts.level = Math.max(1, Math.min(EN.MAX_LEVEL, parseInt(lv.value, 10) || 1));
+      });
+    }
+    if (g20) g20.addEventListener('change', function () { opts.g20 = !!g20.checked; });
+    try {
+      const m = localStorage.getItem('neon-tetris-mode');
+      if (m && EN.MODES[m]) opts.mode = m;
+    } catch (e) { }
+  })();
+
+  /* ================= 디버그/자동화 ================= */
+  /**
+   * 테스트 하네스(probe.js)가 화면 상태 G 를 직접 읽고 쓰듯 엔진을 조작할 수 있게
+   * 엔진 소유 필드는 그대로 엔진으로 통과시키는 프록시를 제공한다.
+   * 이렇게 하지 않으면 "G 에 써놓고 화면은 안 바뀌어" 같은 테스트 함정이 생긴다.
+   */
+  const ENGINE_KEYS = ['board', 'piece', 'hold', 'canHold', 'queue', 'score', 'lines', 'level', 'startLevel',
+    'combo', 'b2b', 'pending', 'clearT', 'spinFlag', 'lastKick', 'ticks', 'pieces', 'tetrises', 'tspins',
+    'pcs', 'maxCombo', 'lockT', 'lockResets', 'held', 'das', 'arr', 'g20', 'seed', 'mode'];
+  const GDebug = new Proxy(G, {
+    get: function (t, k) {
+      if (k === 'stats') {
+        return E ? { pieces: E.pieces, tetrises: E.tetrises, tspins: E.tspins, pc: E.pcs, time: E.ticks * EN.TICK } : t.stats;
+      }
+      if (k === 'state') return paused ? 'paused' : (E ? E.state : t.state);
+      if (E && ENGINE_KEYS.indexOf(k) >= 0) return E[k];
+      return t[k];
+    },
+    set: function (t, k, v) {
+      if (k === 'state' && v !== 'paused' && paused) { setPause(false); return true; }
+      if (E && ENGINE_KEYS.indexOf(k) >= 0) { E[k] = v; return true; }
+      t[k] = v;
+      return true;
+    },
+  });
+
+  if (URL_P.has('debug')) {
+    window.TetrisDebug = {
+      G: GDebug, GV: G, C: C, EN: EN, RP: RP,
+      get engine() { return E; },
+      start: function () { return start(); },
+      spawn: function (type) { if (E) { E.piece = null; E.spawn(type || null); showEvents(E.drainEvents()); sync(); } return true; },
+      move: function (dx) { const ok = E && E.move(dx); if (E) showEvents(E.drainEvents()); sync(); return ok; },
+      rotate: function (dir) { const ok = E && E.rotate(dir); if (E) showEvents(E.drainEvents()); sync(); return ok; },
+      hardDrop: function () { if (E) { E.hardDrop(); showEvents(E.drainEvents()); sync(); } },
+      holdPiece: function () { if (E) { E.holdPiece(); showEvents(E.drainEvents()); sync(); } },
+      lockPiece: function () { if (E) { E.lockPiece(); showEvents(E.drainEvents()); sync(); } },
+      tick: function (n) { for (let i = 0; i < (n || 1); i++) { if (!E) return; E.tick(); showEvents(E.drainEvents()); } sync(); },
+      togglePause: function () { togglePause(); },
+      setOpts: function (o) { Object.assign(opts, o); renderModes(); },
+      pressKey: function (a) { pressKey(a); },
+      releaseKey: function (a) { releaseKey(a); },
+      replay: function (share) { return startPlayback(share, true); },
+      challenge: function (share) { return startChallenge(share); },
+      packed: function () { return G.lastPacked; },
+    };
   }
 
   /* ================= 시작 ================= */
-  /* 디버그: index.html?demo 로 열면 콘솔에서 내부 상태 조작 가능 */
-  if (location.search.indexOf('debug') >= 0) {
-    window.TetrisDebug = {
-      G: G, C: C, start: start, spawn: spawn, move: move, rotate: rotate,
-      hardDrop: hardDrop, holdPiece: holdPiece, lockPiece: lockPiece,
-      togglePause: togglePause, gravityInterval: gravityInterval,
-    };
-  }
-
   window.addEventListener('resize', resize);
   if (window.ResizeObserver) new ResizeObserver(resize).observe(slot);
   resize();
-  reset();
-  showOverlay('ready');
-  requestAnimationFrame(function (t) { last = t; resize(); frame(t); });
+  renderModes();
+  updateHUD();
+
+  (async function boot() {
+    await CL.init({ levelSel: 'levelSel', modes: opts });
+    const share = URL_P.get('r') || URL_P.get('replay') || CL.pathShare();
+    const chal = URL_P.get('challenge') || URL_P.get('c');
+    if (share) {
+      await startPlayback(share, true);
+    } else if (chal) {
+      await startChallenge(chal);
+    } else {
+      showOverlay('ready');
+    }
+    CL.mount({ opts: opts, restart: function () { start(); }, challenge: startChallenge, replay: function (s) { return startPlayback(s, true); } });
+    requestAnimationFrame(function (t) { last = t; resize(); frame(t); });
+  })();
 })();

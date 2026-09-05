@@ -162,12 +162,12 @@
       E.lowestY = E.piece.y;
       E.canHold = true;
       if (C.collides(E.board, m, E.piece.x, E.piece.y)) {
-        ev('spawnblocked', { type: type });
+        ev('spawnblocked', { piece: type });
         finish('topout');
         E.piece = null;
         return false;
       }
-      ev('spawn', { type: type });
+      ev('spawn', { piece: type });
       return true;
     }
 
@@ -238,8 +238,9 @@
         E.score += dist * 2;
         ev('harddrop', {
           dist: dist,
-          type: E.piece.type,
+          piece: E.piece.type,
           fromY: startY,
+          landY: E.piece.y,
           cells: C.cellsOf(E.piece.type, E.piece.rot),
           x: E.piece.x,
         });
@@ -253,7 +254,7 @@
       const stash = E.hold;
       E.hold = cur;
       E.piece = null;
-      ev('hold', { type: cur });
+      ev('hold', { piece: cur });
       spawn(stash || null);
       E.canHold = false;          // spawn()이 true로 리셋하므로 반드시 뒤에
       return true;
@@ -271,7 +272,7 @@
       C.merge(E.board, p);
       E.piece = null;
       E.pieces++;
-      ev('lock', { type: p.type });
+      ev('lock', { piece: p.type });
 
       const rows = C.fullRows(E.board);
       const n = rows.length;

@@ -1,0 +1,10 @@
+{
+  "name": "NEON TETRIS",
+  "short_name": "NEON TETRIS",
+  "description": "SRS·T-스핀 웹 테트리스. 기록은 서버 재시뮬로 검증됩니다.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#05070f",
+  "theme_color": "#070a14",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

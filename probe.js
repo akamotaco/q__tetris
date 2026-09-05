@@ -39,7 +39,7 @@ async function waitForTarget() {
   for (let i = 0; i < 60; i++) {
     try {
       const list = await getJSON('/json/list');
-      const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+      const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl && /index.html/.test(t.url));  /* 브라우저 자체 시작 페이지와 혼동 방지 */
       if (page) return page;
     } catch (e) { /* 아직 준비 전 */ }
     await sleep(300);
@@ -134,7 +134,7 @@ async function waitForTarget() {
     });
 
     /* 1) 줄 삭제 + 레벨업 */
-    D.start();
+    await D.start();
     G.lines = 9; G.level = 1;
     for (let x=0;x<10;x++) if (x<3 || x>6) G.board[19][x] = 'J'; /* 열 3~6 비움 (I 는 가로 4칸) */
     G.piece = null; D.spawn('I');
@@ -148,7 +148,7 @@ async function waitForTarget() {
     chk('삭제 후 해당 행 비움', G.board[19].filter(Boolean).length === 0, G.board[19].filter(Boolean).length);
 
     /* 2) T-스핀 더블 */
-    D.start();
+    await D.start();
     for (let x=0;x<10;x++){ G.board[19][x]='J'; G.board[18][x]='J'; }
     G.board[19][4]=null; G.board[18][3]=G.board[18][4]=G.board[18][5]=null; G.board[17][3]='J';
     G.piece=null; D.spawn('T');
@@ -161,7 +161,7 @@ async function waitForTarget() {
     chk('T-스핀 통계', num('statTspin') === 1, num('statTspin'));
 
     /* 3) 홀드 */
-    D.start();
+    await D.start();
     const firstType = G.piece.type;
     D.holdPiece();
     chk('빈 홀드에 스텝', G.hold === firstType, G.hold);
@@ -173,7 +173,7 @@ async function waitForTarget() {
     chk('조각 교체 후 홀드 재활성', G.canHold === true || G.state !== 'playing', G.canHold);
 
     /* 4) 벽 제한 */
-    D.start();
+    await D.start();
     for (let i=0;i<24;i++) D.move(-1);
     const minX = G.piece.x;
     for (let i=0;i<24;i++) D.move(1);
@@ -181,7 +181,7 @@ async function waitForTarget() {
     chk('벽에서 멈춤', minX >= -1 && G.piece.x <= maxX, 'min=' + minX + ' max=' + G.piece.x + ' (expected<=' + maxX + ')');
 
     /* 5) 회전 실패 없음 확인 (빈 보드에서 전 조각 4회전) */
-    D.start();
+    await D.start();
     let rotOK = true;
     ['I','J','L','S','T','Z'].forEach(tp => {
       G.piece = null; D.spawn(tp);
@@ -190,7 +190,7 @@ async function waitForTarget() {
     chk('빈 보드에서 전 조각 회전 가능', rotOK);
 
     /* 6) 게임 오버 (인위적 상단 충전) */
-    D.start();
+    await D.start();
     for (let y=0;y<20;y++) for (let x=0;x<10;x++) G.board[y][x] = 'J';
     G.piece = null; D.spawn('O');
     chk('스폰 자리 막힘 → 게임오버', G.state === 'over', G.state);
@@ -198,14 +198,14 @@ async function waitForTarget() {
     chk('최고점 저장', num('high') >= 0, num('high'));
 
     /* 7) 일시정지 */
-    D.start();
+    await D.start();
     D.togglePause();
     const pausedState = G.state;
     D.togglePause();
     chk('일시정지/해제', pausedState === 'paused' && G.state === 'playing', pausedState + '/' + G.state);
 
     /* 8) 타이머 */
-    D.start();
+    await D.start();
     await settle(() => G.state === 'playing', 400);
     const raf = await measureRaf(400);
     const stalled = raf.maxGap > 200 || raf.fps < 30;
@@ -224,7 +224,7 @@ async function waitForTarget() {
     D.togglePause();
 
     /* 9) 좌우 반복(DAS/ARR) */
-    D.start();
+    await D.start();
     await settle(() => G.state === 'playing', 400);
     const press = (k, type) => window.dispatchEvent(new KeyboardEvent(type, { key: k, bubbles: true }));
     const x0 = G.piece.x;
@@ -237,7 +237,7 @@ async function waitForTarget() {
       stalled || wallMoved >= 3, '이동 ' + wallMoved + '칸 (x ' + x0 + ' → ' + G.piece.x + ')');
 
     /* 10) 소프트 드롭 점수 */
-    D.start();
+    await D.start();
     await settle(() => G.state === 'playing', 400);
     for (let i = 0; i < 8; i++) {
       ensure();
@@ -248,7 +248,7 @@ async function waitForTarget() {
     chk('소프트 드롭 = 칸당 1점', num('score') >= 5, 'score=' + num('score'));
 
     /* 11) 홀드 교환 (이미 홀드가 있는 경우) */
-    D.start();
+    await D.start();
     const a = G.piece.type;
     D.holdPiece();
     await sleep(30);
@@ -270,7 +270,7 @@ async function waitForTarget() {
     const D = window.TetrisDebug, G = D.G, C = D.C;
     const sleep = ms => new Promise(r=>setTimeout(r, ms));
     const num = id => parseInt(document.getElementById(id).textContent.replace(/[^0-9]/g,''),10) || 0;
-    D.start();
+    await D.start();
     function cost(b){
       let holes=0, bump=0, agg=0, maxH=0; const hs=[];
       for (let x=0;x<10;x++){ let top=0; while(top<20 && !b[top][x]) top++; hs[x]=20-top; agg+=hs[x]; maxH=Math.max(maxH,hs[x]);
@@ -391,7 +391,7 @@ async function waitForTarget() {
       const d=pg.getImageData(0,0,pc.width,pc.height).data; let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>24) n++; return n; })();
 
     const D = window.TetrisDebug, G = D.G, C = D.C;
-    D.start();
+    await D.start();
     await sleep(220);
     const cellPx = c.width / 10;
     const inkIn = (cx, cy) => {
