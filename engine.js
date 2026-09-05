@@ -539,32 +539,45 @@
   /**
    * @param {object} rep replay.js가 디코딩한 리플레이
    * @param {object} opt {maxTicks}
-   * @returns {{engine, inputsApplied, overflow:boolean}}
+   * @returns {{engine, trace, inputsApplied, trailing, timedOut, ticksReached, simTicks}}
+   *
+   * trace 는 검증 휴리스틱과 고스트 재생이 쓰는 부수 자료다:
+   *   spawns/locks(틱 목록), hard(하드드롭 횟수), clears(삭제 횟수), maxStack(동일 틱 최다 입력)
    */
   function simulate(rep, opt) {
     opt = opt || {};
-    const maxTicks = opt.maxTicks || 60 * 60 * 8;      // 8시간 상한
+    const maxTicks = opt.maxTicks || 8 * 3600 * 60;   // 8시간(틱 단위) 상한
+    const t0 = Date.now();
     const eng = create({ seed: rep.seed, mode: rep.mode, level: rep.level, g20: rep.g20 });
     const inputs = rep.inputs;
+    const trace = { spawns: [], locks: [], hard: 0, clears: 0, rotations: 0, maxStack: 0, popups: [] };
     let idx = 0;
-    const seen = [];
     while (eng.ticks < maxTicks) {
       const buf = [];
-      while (idx < inputs.length && inputs[idx].t <= eng.ticks + 1) {
-        const it = inputs[idx++];
-        buf.push(it);
-      }
+      while (idx < inputs.length && inputs[idx].t <= eng.ticks + 1) buf.push(inputs[idx++]);
+      if (buf.length > trace.maxStack) trace.maxStack = buf.length;
       eng.setBuffer(buf.map(function (b) { return { k: b.k, a: b.a }; }));
       const alive = eng.tick();
-      for (let i = 0; i < buf.length; i++) seen.push(buf[i]);
+      const evs = eng.drainEvents();
+      for (let i = 0; i < evs.length; i++) {
+        const e = evs[i];
+        if (e.type === 'spawn') trace.spawns.push(eng.ticks);
+        else if (e.type === 'lock') trace.locks.push(eng.ticks);
+        else if (e.type === 'harddrop') trace.hard++;
+        else if (e.type === 'rotate') trace.rotations++;
+        else if (e.type === 'scored' && e.lines) trace.clears++;
+        else if (e.type === 'popup' && e.text) trace.popups.push([eng.ticks, e.text]);
+      }
       if (!alive || eng.state === 'over') break;
     }
     return {
       engine: eng,
+      trace: trace,
       inputsApplied: idx,
       trailing: inputs.length - idx,          // 실행 종료 후 처리 못 한 입력
       timedOut: eng.state !== 'over',
       ticksReached: eng.ticks,
+      simMs: Date.now() - t0,
     };
   }
 

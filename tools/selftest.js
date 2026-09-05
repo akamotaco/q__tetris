@@ -167,7 +167,7 @@ ok('저속 AI도 완주', slow.pieces > 20);
 /* ---------- 8. 초고속 매크로 탐지 재료 ---------- */
 group('휴먼 오버 데이터 감지 재료');
 const spam = AI.run({ seed: 'spam', skill: { delay: 0, gap: 1 } });
-const human = AI.run({ seed: 'spam', skill: { delay: 10, gap: 7, jitter: 0.35, rng: EN.makeRng('j').u32 } });
+const human = AI.run({ seed: 'spam', skill: { delay: 10, gap: 7, jitter: 0.35, rng: AI.makeRand('j') } });
 console.log('    spam PPS ' + RP.pps(spam).toFixed(2) + ' / human PPS ' + RP.pps(human).toFixed(2));
 ok('AI 초고속 PPS > 인간 설정 PPS', RP.pps(spam) > RP.pps(human));
 

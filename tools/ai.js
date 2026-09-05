@@ -84,6 +84,12 @@
     return out;
   }
 
+  /** 시드된 [0,1) 난수 — 테스트 재현성을 위해 (Math.random 대신 주입) */
+  function makeRand(seedText) {
+    const r = EN.makeRng(seedText);
+    return function () { return r.u32() / 4294967296; };
+  }
+
   const PRESETS = {
     bot: { delay: 0, gap: 1 },                                        // 초인적 (플래그되어야 정상)
     ace: { delay: 3, gap: 2 },                                        // 최상위권(세계신 수준)
@@ -185,9 +191,13 @@
       seed: o.seed || 'seed-' + Math.floor(Math.random() * 1e9),
       mode: o.mode, level: o.level, g20: o.g20,
     });
-    const bot = create(o.skill || o.preset);
+    let skill = o.skill || o.preset;
+    if (typeof skill === 'string') skill = Object.assign({}, PRESETS[skill] || {});
+    else if (skill) skill = Object.assign({}, skill);
+    if (o.rng) skill.rng = o.rng;
+    const bot = create(skill);
     const inputs = [];
-    const maxTicks = o.maxTicks || 60 * 60 * 10;
+    const maxTicks = o.maxTicks || 10 * 3600 * 60;   // 안전 상한(틱 단위)
     while (eng.ticks < maxTicks && eng.state !== 'over') {
       const acts = bot.act(eng);
       for (let i = 0; i < acts.length; i++) inputs.push({ t: eng.ticks + 1, a: acts[i].a, k: acts[i].k });
@@ -205,5 +215,5 @@
     };
   }
 
-  return { create: create, run: run, evaluations: evaluations, PRESETS: PRESETS, weights: W };
+  return { create: create, run: run, evaluations: evaluations, makeRand: makeRand, PRESETS: PRESETS, weights: W };
 });

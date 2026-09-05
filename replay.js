@@ -94,7 +94,7 @@
   function checkShape(rec, lim) {
     lim = lim || {};
     const maxInputs = lim.maxInputs || 40000;
-    const maxTicks = lim.maxTicks || 60 * 60 * 4;      // 4시간
+    const maxTicks = lim.maxTicks || 4 * 3600 * 60;   // 4시간(틱 단위)
     const errs = [];
     if (rec.v !== VERSION) errs.push('version');
     if (!EN.MODES[rec.mode]) errs.push('mode');
