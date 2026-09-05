@@ -173,6 +173,35 @@
     renderMine();
   }
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /** queued 로 접수된 제출을 폴링해서 최종 결과 모양으로 바꿔준다. */
+  async function awaitVerification(share, initial) {
+    const eta = (initial.queue && initial.queue.etaMs) || 0;
+    const depth = (initial.queue && initial.queue.pos) || 0;
+    const deadline = Date.now() + Math.min(300000, Math.max(45000, eta * 4 + depth * 4000));
+    for (let i = 0; ; i++) {
+      await sleep(i === 0 ? 1200 : 2500);
+      const g = await req('GET', '/api/replay/' + share);
+      if (g.status === 200 && g.json) {
+        if (g.json.status === 'rejected') return { error: 'rejected', code: g.json.reject, share: share };
+        if (!g.json.queued) {
+          patchLocal(initial.packed, share);
+          const rk = g.json.rank || {};
+          return {
+            status: g.json.status, share: share, url: '/r/' + share,
+            rank: rk.atSubmit, total: rk.total, bestRank: rk.best, isTop: rk.atSubmit === 1,
+            flags: g.json.flags || [], hardFlags: g.json.hardFlags || [], softFlags: g.json.softFlags || [],
+            metrics: g.json.metrics || {}, displayName: g.json.displayName || null,
+            codename: g.json.codename || null, polled: i + 1,
+          };
+        }
+        if (CL.onQueue) CL.onQueue({ pos: (g.json.queue && g.json.queue.pos) || 0, etaMs: g.json.queue && g.json.queue.etaMs, tier: g.json.queue && g.json.queue.tier });
+      }
+      if (Date.now() > deadline) return { status: 'queued', share: share, url: '/r/' + share, pending: true };
+    }
+  }
+
   CL.submit = async function (info) {
     if (!info.session) return { error: 'offline' };
     const rec = RP.unpack(info.packed);
@@ -192,7 +221,13 @@
     const r = await req('POST', '/api/submit', body, 20000);
     if (r.offline) return { error: L.t('err.network') };
     if (r.status === 200 && r.json && r.json.share) patchLocal(info.packed, r.json.share);
-    return Object.assign({ httpStatus: r.status }, r.json || { error: 'unknown' });
+    const out = Object.assign({ httpStatus: r.status }, r.json || { error: 'unknown' });
+    if (r.status === 202 && out.share) {
+      out.packed = info.packed;
+      if (CL.onQueue) CL.onQueue({ pos: (out.queue && out.queue.pos) || 0, etaMs: out.queue && out.queue.etaMs, tier: out.tier });
+      return awaitVerification(out.share, out);
+    }
+    return out;
   };
 
   async function sha256hex(str) {
@@ -258,10 +293,18 @@
       go.textContent = L.t('submit.verifying');
       const out = $('subOut');
       out.innerHTML = '<div class="bar indet"></div>';
+      /* 워커 큐에 들어갔으면 대기 위치를 계속 갱신해 보여준다 */
+      CL.onQueue = function (qi) {
+        if (!qi) return;
+        out.innerHTML = '<div class="res warn queueing">' + esc(L.t('submit.queuedN', {
+          pos: (qi.pos || 0) + 1, sec: Math.max(1, Math.round((qi.etaMs || 3000) / 1000)),
+        })) + '</div>';
+      };
       const res = await CL.submit({
         packed: info.packed, session: info.session, displayName: name || null,
         reveal: rv, challengeOf: info.challengeOf,
       });
+      CL.onQueue = null;
       box.classList.add('done');
       renderSubmitResult(out, res, name, info);
     });
@@ -282,6 +325,10 @@
       return;
     }
     const url = location.origin + (location.port ? ':' + location.port : '') + '/r/' + res.share;
+    if (res.pending) {
+      out.innerHTML = '<div class="res warn">' + esc(L.t('submit.stillQueued')) + ' <a href="/r/' + esc(res.share) + '">' + esc(L.t('replay.watch')) + '</a></div>';
+      return;
+    }
     const statusLine = res.status === 'flagged'
       ? '<div class="res warn">' + esc(L.t('submit.flagged')) + ' <code>' + esc(flagText(res.hardFlags || res.flags)) + '</code></div>'
       : '<div class="res ok">' + esc(L.t('submit.verified')) + '</div>' +

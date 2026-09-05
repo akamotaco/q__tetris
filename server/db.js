@@ -67,7 +67,12 @@ CREATE TABLE IF NOT EXISTS runs (
   reveal       INTEGER NOT NULL DEFAULT 1,
   challenge_of TEXT,                  -- 격파 대상 share 키
   rank_at_submit INTEGER,
-  client_ver TEXT, lang TEXT, issued_at INTEGER, submitted_at INTEGER NOT NULL
+  client_ver TEXT, lang TEXT, issued_at INTEGER, submitted_at INTEGER NOT NULL,
+  verified_at INTEGER,                 -- 검증(또는 기각)이 끝난 시각
+  metrics TEXT,                        -- 검증 때 계산한 지표 JSON (검수용)
+  mismatch TEXT,                       -- 기각된 경우 어긋난 칸
+  queue_tier INTEGER DEFAULT 1,        -- 0 우선 / 1 보통 / 2 저속
+  attempts INTEGER DEFAULT 0           -- 재시뮬 시도 횟수(크래시 복구 추적)
 );
 CREATE INDEX IF NOT EXISTS ix_board_verified ON runs(board, status, score DESC, ticks ASC);
 CREATE INDEX IF NOT EXISTS ix_board_time     ON runs(board, status, ticks ASC);
@@ -133,6 +138,16 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS ix_hold_run ON rank_hold(run_id);
       CREATE INDEX IF NOT EXISTS ix_hold_board ON rank_hold(board, until_ms);`);
   }
+  const rc = new Set(db.prepare('PRAGMA table_info(runs)').all().map(c => c.name));
+  const add = (name, decl) => {
+    if (!rc.has(name)) { console.log('[migrate] runs.' + name + ' 추가'); db.exec('ALTER TABLE runs ADD COLUMN ' + decl); }
+  };
+  add('verified_at', 'INTEGER');
+  add('metrics', 'TEXT');
+  add('mismatch', 'TEXT');
+  add('queue_tier', 'INTEGER DEFAULT 1');
+  add('attempts', 'INTEGER DEFAULT 0');
+  db.exec('CREATE INDEX IF NOT EXISTS ix_status ON runs(status, id)');
 })();
 
 /* ================= 유틸 ================= */
@@ -247,18 +262,20 @@ function ownerOf(fp) { return fp ? db.prepare('SELECT fp, codename, display_name
 
 /* ================= 기록 등록 ================= */
 const RUN_COLS = new Set(db.prepare('PRAGMA table_info(runs)').all().map(r => r.name));
+/** SQLite 가 바인딩할 수 있는 형태로. (배열/객체 → JSON, undefined → null, boolean → 0/1) */
+function sqlVal(v) {
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (Array.isArray(v) || (typeof v === 'object' && v.constructor !== Date)) return JSON.stringify(v);
+  if (typeof v === 'number' && !Number.isFinite(v)) throw new Error('유한하지 않은 숫자');
+  return v;
+}
 function insert(row) {
   const keys = Object.keys(row);
   const bad = keys.filter(k => !RUN_COLS.has(k));
   if (bad.length) throw new Error('runs 에 없는 열: ' + bad.join(',') + ' (열 이름은 PRAGMA table_info(runs) 참고)');
   const sql = `INSERT INTO runs (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`;
-  return db.prepare(sql).run(...keys.map(k => {
-    const v = row[k];
-    if (v === undefined || v === null) return null;
-    if (typeof v === 'boolean') return v ? 1 : 0;
-    if (typeof v === 'number' && !Number.isFinite(v)) throw new Error(' 유한하지 않은 숫자: ' + k);
-    return v;
-  }));
+  return db.prepare(sql).run(...keys.map(k => sqlVal(row[k])));
 }
 
 function rankOnBoard(board, run) {
@@ -280,11 +297,13 @@ function topOfBoard(board) {
 }
 
 /**
- * 등록 → 순위 계산 → 이력 기록. `row` 는 DB 열 이름 그대로 (서버가 직접 만든다).
+ * 등록은 두 단계로 나눈다.
+ *   ① insertRun: 제출받는 즉시 queued 로 박아둔다 → 프로세스가 죽어도 대기열이 DB에서 복구된다.
+ *   ② finalizeRun: 워커가 재시뮬을 끝내면 순위·이력·1위 유지 시간을 반영해 **발행**한다.
  * 어떤 경우에도 기존 데이터를 지우지 않는다.
  */
-function registerRun(row, meta) {
-  const full = Object.assign({}, row, {
+function insertRun(row, meta) {
+  const full = Object.assign({ status: 'queued' }, row, {
     fp: meta.fp || row.fp || null,
     ip_hash: meta.ipHash || null,
     ip_hint: meta.ipHint || null,
@@ -296,28 +315,57 @@ function registerRun(row, meta) {
     submitted_at: now(),
   });
   if (Array.isArray(full.flags)) full.flags = JSON.stringify(full.flags);
+  if (full.g20 === true) full.g20 = 1; else if (full.g20 === false) full.g20 = 0;
   const info = insert(full);
-  const id = Number(info.lastInsertRowid);
+  return db.prepare('SELECT * FROM runs WHERE id = ?').get(Number(info.lastInsertRowid));
+}
+
+/** 검증 종료 → 발행(또는 기각 기록). 순위·이력은 이 시점에 계산된다. */
+function finalizeRun(id, patch) {
+  const keys = Object.keys(patch).filter(k => RUN_COLS.has(k));
+  if (keys.length) {
+    db.prepare('UPDATE runs SET ' + keys.map(k => k + ' = ?').join(', ') + ' WHERE id = ?')
+      .run(...keys.map(k => sqlVal(patch[k])), id);
+  }
   const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id);
-  const rank = rankOnBoard(full.board, run);
+  if (['verified', 'flagged'].indexOf(run.status) < 0) return run;      // 기각은 순위에 개입하지 않는다
+
+  const rank = rankOnBoard(run.board, run);
   db.prepare('UPDATE runs SET rank_at_submit = ? WHERE id = ?').run(rank, id);
-  const metric = metricOf(full.mode) === 'time' ? full.ticks : full.score;
+  run.rank_at_submit = rank;
+  const metric = metricOf(run.mode) === 'time' ? run.ticks : run.score;
   db.prepare(`INSERT INTO rank_events(board, run_id, rank, metric, kind, beat_run_id, beat_score, gap, at)
-              VALUES (?,?,?,?,?,?,?,?,?)`).run(full.board, id, rank, metric, 'submit', null, null, null, now());
+              VALUES (?,?,?,?,?,?,?,?,?)`).run(run.board, id, rank, metric, 'submit', null, null, null, now());
 
   if (rank === 1) {
-    const open = db.prepare('SELECT * FROM rank_hold WHERE board = ? AND until_ms IS NULL').get(full.board);
+    const open = db.prepare('SELECT * FROM rank_hold WHERE board = ? AND until_ms IS NULL').get(run.board);
     const beaten = open && open.run_id !== id ? db.prepare('SELECT * FROM runs WHERE id = ?').get(open.run_id) : null;
-    if (open) db.prepare('UPDATE rank_hold SET until_ms = ? WHERE board = ? AND until_ms IS NULL').run(now(), full.board);
-    db.prepare('INSERT INTO rank_hold(board, run_id, since) VALUES (?,?,?)').run(full.board, id, now());
+    if (open) db.prepare('UPDATE rank_hold SET until_ms = ? WHERE board = ? AND until_ms IS NULL').run(now(), run.board);
+    db.prepare('INSERT INTO rank_hold(board, run_id, since) VALUES (?,?,?)').run(run.board, id, now());
     db.prepare(`INSERT INTO rank_events(board, run_id, rank, metric, kind, beat_run_id, beat_score, gap, at)
-                VALUES (?,?,?,?,?,?,?,?,?)`).run(full.board, id, 1, metric, 'top1',
+                VALUES (?,?,?,?,?,?,?,?,?)`).run(run.board, id, 1, metric, 'top1',
       beaten ? beaten.id : null, beaten ? beaten.score : null,
-      beaten ? Math.abs(full.score - beaten.score) : null, now());
+      beaten ? Math.abs(run.score - beaten.score) : null, now());
   }
   return db.prepare('SELECT * FROM runs WHERE id = ?').get(id);
 }
 
+/** 워커가 죽거나 재시작한 경우를 위해 대기 중인 행을 DB에서 다시 주워온다 */
+function pendingRuns(limit) {
+  return db.prepare(`SELECT id, replay, board, mode, ticks, queue_tier, attempts, issued_at, fp, ip_hash
+                     FROM runs WHERE status IN ('queued','verifying') ORDER BY queue_tier ASC, id ASC LIMIT ?`)
+    .all(limit || 500);
+}
+function inFlightByIp(ipHash) {
+  return db.prepare(`SELECT COUNT(*) c FROM runs WHERE status IN ('queued','verifying') AND ip_hash = ?`).get(ipHash).c;
+}
+function inFlightByFp(fp) {
+  if (!fp) return 0;
+  return db.prepare(`SELECT COUNT(*) c FROM runs WHERE status IN ('queued','verifying') AND fp = ?`).get(fp).c;
+}
+function bumpAttempt(id) {
+  db.prepare('UPDATE runs SET attempts = COALESCE(attempts,0) + 1, status = ? WHERE id = ?').run('verifying', id);
+}
 /* ================= 조회 — 응답에 display_name을 넣지 않는다 ================= */
 const BOARD_COLS = `id, share, board, mode, level, g20, score, lines, pieces, ticks, status, flags,
                     fp, reveal, rank_at_submit, tetrises, tspins, pcs, over_reason, submitted_at, challenge_of`;
@@ -481,7 +529,8 @@ module.exports = {
   isBanned, ban, takeSlot, countUp,
   issueToken, consumeToken, peekToken, sweepTokens,
   touchOwner, ownerOf,
-  registerRun, rankOnBoard, topOfBoard,
+  insertRun, finalizeRun, pendingRuns, inFlightByIp, inFlightByFp, bumpAttempt,
+  rankOnBoard, topOfBoard,
   listBoard, countBoard, boards, getRunByShare, getRunByDigest, getRunById, runsByFp, totals,
   snapshot, periodBoard, periodList, knownPeriods, periodKeys,
   holdInfo, holdForRun, lineageOf, bestRankOf,

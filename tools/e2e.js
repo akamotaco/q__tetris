@@ -147,8 +147,13 @@ async function waitHttp(url, tries) {
     if (nameEl) nameEl.value = '테스트플레이어';
     const go = document.getElementById('subGo');
     if (go) go.click();
-    for (let i=0;i<80 && !document.querySelector('#subOut .res');i++) await sleep(150);
-    const res = document.querySelector('#subOut .res');
+    /* 큐에 들어가면 '대기 중' 이 먼저 뜬다 → 종결 상태(.res 이면서 .queueing 아닌 것)까지 기다린다 */
+    for (let i=0;i<260;i++) {
+      await sleep(150);
+      const done = document.querySelector('#subOut .res:not(.queueing)');
+      if (done && !document.querySelector('#subOut .queueing')) break;
+    }
+    const res = document.querySelector('#subOut .res:not(.queueing)');
     const shareInput = document.querySelector('#subOut .share input');
     return JSON.stringify({
       state: D.G.state, pieces: pieces,

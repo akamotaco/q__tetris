@@ -20,8 +20,28 @@ const V = require('./verify');
 const RP = require('../replay.js');
 const EN = require('../engine.js');
 const ID = require('../identity.js');
+const { queue } = require('./queue.js');
 
 const START = Date.now();
+
+/* ================= 이벤트 루프 지연 감시 =================
+ * "검증 때문에 사이트가 멈추는지" 를 남의 측정이 아니라 스스로 보고한다.
+ * 20ms 주기 타이머가 실제로 몇 ms 늦게 돌아야 했는지가 곧 루프 정체다. */
+const LAG_INTERVAL = 20;
+const lagSamples = [];
+let lagPrev = process.hrtime.bigint();
+setInterval(function () {
+  const t = process.hrtime.bigint();
+  const late = Number(t - lagPrev) / 1e6 - LAG_INTERVAL;
+  lagPrev = t;
+  if (late > 0.5) { lagSamples.push(late); if (lagSamples.length > 5000) lagSamples.shift(); }
+}, LAG_INTERVAL).unref();
+function lagStats() {
+  if (!lagSamples.length) return { n: 0 };
+  const a = lagSamples.slice().sort((x, y) => x - y);
+  const p = (q) => +a[Math.min(a.length - 1, Math.floor(a.length * q))].toFixed(1);
+  return { n: a.length, p50: p(0.5), p95: p(0.95), max: +a[a.length - 1].toFixed(1) };
+}
 
 /* ================= 정적 허용 목록 ================= */
 const STATIC = {
@@ -100,14 +120,6 @@ async function readJson(req, res) {
   catch (e) { json(res, 400, { error: 'bad-json' }); return null; }
 }
 
-/* ================= 재시뮬 동시성 보호 ================= */
-let simBusy = 0;
-function simSlot() {
-  if (simBusy >= CFG.SIM_SLOTS) return null;
-  simBusy++;
-  return () => { simBusy--; };
-}
-
 /* ================= HTML + OG ================= */
 let htmlCache = { mtime: 0, text: '' };
 function indexHtml() {
@@ -165,6 +177,39 @@ function ownership(body, fp, prefix, parts) {
   return V.verifyOwnership(o.jwk, fp, ID.authPayload(prefix, parts), o.sig);
 }
 
+function safeParse(s) { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+
+/* ================= 검증 완료 처리 (워커 → 발행) ================= */
+function onVerified(job, r) {
+  try {
+    if (!job.id) return;
+    if (r.status === 'rejected') {
+      const n = DB.countUp('rej:' + (job.ipHash || 'na'), 36e5);
+      if (n > CFG.LIMITS.rejectsBeforeBan) DB.ban(job.ipHash, 'repeat-rejection:' + r.code);
+      DB.finalizeRun(job.id, {
+        status: 'rejected', reject: r.code, flags: r.flags,
+        mismatch: r.mismatch ? JSON.stringify(r.mismatch) : null,
+        metrics: JSON.stringify(r.metrics || {}),
+        sim_ms: r.simMs, verify_ms: r.verifyMs, verified_at: DB.now(),
+      });
+      return;
+    }
+    const s = r.sim || {};
+    DB.finalizeRun(job.id, {
+      status: r.status, flags: r.flags, ghost: r.ghost,
+      // 주장값이 아니라 **재시뮬이 만들어낸 값**을 박는다 (일치할 때만 여기 도달한다)
+      score: s.score, lines: s.lines, pieces: s.pieces, ticks: s.ticks, hash: s.hash,
+      over_reason: s.over_reason, tetrises: s.tetrises, tspins: s.tspins, pcs: s.pcs, max_combo: s.max_combo,
+      pps: r.metrics.pps, apm: r.metrics.apm, inp_rate: r.metrics.ips,
+      metrics: JSON.stringify(r.metrics || {}),
+      sim_ms: r.simMs, verify_ms: r.verifyMs, verified_at: DB.now(),
+    });
+  } catch (e) {
+    console.error('[queue] 완료 처리 실패 #' + job.id + ':', e.message);
+  }
+}
+queue.onDone = onVerified;
+
 /* ================= API ================= */
 async function handleApi(req, res, u) {
   const ip = cleanIp(clientIp(req));
@@ -177,7 +222,7 @@ async function handleApi(req, res, u) {
 
   /* ---------- 읽기 ---------- */
   if (req.method === 'GET' && seg[0] === 'health') {
-    return json(res, 200, Object.assign({ ok: true, uptime: Math.round((Date.now() - START) / 1000), simBusy: simBusy }, DB.totals()));
+    return json(res, 200, Object.assign({ ok: true, uptime: Math.round((Date.now() - START) / 1000), loopLag: lagStats(), queue: queue.info() }, DB.totals()));
   }
   if (req.method === 'GET' && seg[0] === 'stats') {
     return json(res, 200, Object.assign({
@@ -234,18 +279,31 @@ async function handleApi(req, res, u) {
   }
   if (req.method === 'GET' && seg[0] === 'replay' && DB.validShare(seg[1])) {
     const run = DB.getRunByShare(seg[1]);
-    if (!run || ['rejected', 'hidden', 'withdrawn'].indexOf(run.status) >= 0) return json(res, 404, { error: 'not-found' });
+    if (!run || ['hidden', 'withdrawn'].indexOf(run.status) >= 0) return json(res, 404, { error: 'not-found' });
+    if (run.status === 'rejected') {
+      return json(res, 200, { share: run.share, status: 'rejected', queued: false, reject: run.reject,
+        mismatch: safeParse(run.mismatch), flags: safeParse(run.flags),
+        submittedAt: run.submitted_at, verifiedAt: run.verified_at }, { 'Cache-Control': 'no-store' });
+    }
     const view = V.publicRun(run, { reveal: !!run.reveal });     // ← 여기서만 이름이 노출된다
+    view.displayName = view.displayName || null;      // '미표시'를 클라가 구분할 수 있게
     view.replay = run.replay;
     view.ghost = run.ghost ? JSON.parse(run.ghost) : null;
-    view.displayName = view.displayName || null;   // 클라가 '미표시'를 구분할 수 있게 명시
-    view.hold = DB.holdForRun(run.id);
-    view.lineage = DB.lineageOf(run.id).map(e => ({
-      kind: e.kind, rank: e.rank, at: e.at,
-      beat: e.beat_share ? { share: e.beat_share, score: e.beat_score2, ticks: e.beat_ticks, codename: e.beat_codename } : null,
-    }));
-    view.rank = { current: DB.rankOnBoard(run.board, run), atSubmit: run.rank_at_submit, best: DB.bestRankOf(run.id), total: DB.countBoard(run.board) };
-    return json(res, 200, view, { 'Cache-Control': 'public, max-age=300' });
+    if (view.queued) {
+      view.queue = queue.position(run.id);
+      view.rank = null;                                  // 검증 전에는 순위를 매기지 않는다
+    } else {
+      view.hold = DB.holdForRun(run.id);
+      view.lineage = DB.lineageOf(run.id).map(e => ({
+        kind: e.kind, rank: e.rank, at: e.at,
+        beat: e.beat_share ? { share: e.beat_share, score: e.beat_score2, ticks: e.beat_ticks, codename: e.beat_codename } : null,
+      }));
+      view.rank = { current: DB.rankOnBoard(run.board, run), atSubmit: run.rank_at_submit, best: DB.bestRankOf(run.id), total: DB.countBoard(run.board) };
+    }
+    return json(res, 200, view, { 'Cache-Control': view.queued ? 'no-store' : 'public, max-age=300' });
+  }
+  if (req.method === 'GET' && seg[0] === 'queue') {
+    return json(res, 200, Object.assign({ loopLag: lagStats() }, queue.info()), { 'Cache-Control': 'no-store' });
   }
   if (req.method === 'GET' && seg[0] === 'rank' && DB.validShare(seg[1])) {
     const run = DB.getRunByShare(seg[1]);
@@ -323,56 +381,57 @@ async function handleApi(req, res, u) {
     if (!dn.ok) return json(res, 400, { error: 'display-name', why: dn.why });
     if (dn.name && fp) DB.touchOwner(fp, dn.name, body.lang);
 
-    /* 4) 시드 소진(원자적) — 기각으로 끝나도 이 시드는 다시 쓸 수 없다 */
+    /* 4) 계산 없이 걸러내는 것들 — 워커에 넘기기 전에 끝낸다 (싸고, flooding 에 강하다) */
+    const shape = RP.checkShape(rec, CFG.LIMITS);
+    if (shape.length) return json(res, 400, { error: 'bad-replay', why: shape.join(',') });
+    if (rec.ticks < CFG.LIMITS.minTicksAbs) return json(res, 422, { error: 'rejected', code: 'too-short' });
+    const realMs = DB.now() - tok.issuedAt;
+    if (RP.seconds(rec.ticks) * 1000 > realMs + CFG.LIMITS.wallclockGraceMs) {
+      DB.consumeToken(rec.seed, iph, fp);
+      const n = DB.countUp('rej:' + iph, 36e5);
+      if (n > CFG.LIMITS.rejectsBeforeBan) DB.ban(iph, 'repeat-rejection:wallclock');
+      return json(res, 422, { error: 'rejected', code: 'wallclock', strikes: n });
+    }
+
+    /* 5) 동시 대기 제한 — 한 네트워크/기기가 큐를 독차지하지 못하게 */
+    if (DB.inFlightByIp(iph) >= CFG.LIMITS.inFlightPerIp)
+      return json(res, 429, { error: 'queue-busy', why: '이 네트워크에 검증 대기 중 인 기록이 너무 많습니다' }, { 'Retry-After': '30' });
+    if (fp && DB.inFlightByFp(fp) >= CFG.LIMITS.inFlightPerFp)
+      return json(res, 429, { error: 'queue-busy' }, { 'Retry-After': '30' });
+
+    /* 6) 접수 — 재시뮬은 요청 경로에서 하지 않는다. 행을 queued 로 박아두고(크래시 복구용)
+          워커 큐에 넘긴 다음 즉시 202 로 돌려준다. 시드는 이 시점에 원자적으로 소진된다. */
     const used = DB.consumeToken(rec.seed, iph, fp);
     if (!used.ok) return json(res, 422, { error: 'token', why: used.why });
-
-    const release = simSlot();
-    if (!release) return json(res, 503, { error: 'busy', retryAfter: 5 }, { 'Retry-After': '5' });
-    let v;
-    try { v = V.verify(rec, { issuedAt: tok.issuedAt, now: DB.now(), ipHash: iph }); }
-    finally { release(); }
-
-    if (v.status === 'rejected') {
-      const row = DB.registerRun({
-        share: DB.shareKey(), digest: 'rej-' + digest, replay: String(body.replay), board: board,
-        mode: rec.mode, level: rec.level, g20: rec.g20 ? 1 : 0, seed: rec.seed,
-        score: rec.score, lines: rec.lines, pieces: rec.pieces, ticks: rec.ticks, hash: rec.hash,
-        status: 'rejected', reject: v.code, flags: v.flags, sim_ms: v.simMs, verify_ms: v.verifyMs,
-      }, { ipHash: iph, ipHint: ID.ipMask(ip), fp: fp, clientVer: body.clientVer, lang: body.lang });
-      const n = DB.countUp('rej:' + iph, 36e5);
-      if (n > CFG.LIMITS.rejectsBeforeBan) DB.ban(iph, 'repeat-rejection:' + v.code);
-      return json(res, 422, { error: 'rejected', code: v.code, mismatch: v.mismatch, share: row.share, strikes: n });
-    }
 
     const challengeOf = body.challengeOf && DB.validShare(body.challengeOf) && DB.getRunByShare(body.challengeOf)
       ? body.challengeOf : null;
 
-    const run = DB.registerRun({
+    const run = DB.insertRun({
       share: DB.shareKey(), digest: digest, replay: String(body.replay), board: board,
       mode: rec.mode, level: rec.level, g20: rec.g20 ? 1 : 0, seed: rec.seed,
       score: rec.score, lines: rec.lines, pieces: rec.pieces, ticks: rec.ticks, hash: rec.hash,
-      over_reason: rec.overReason || null,
-      tetrises: v.sim.tetrises, tspins: v.sim.tspins, pcs: v.sim.pcs, max_combo: v.sim.maxCombo,
-      pps: v.metrics.pps, apm: v.metrics.apm, inp_rate: v.metrics.ips, input_count: rec.inputs.length,
-      ghost: JSON.stringify(v.ghost || null),
-      status: v.status, flags: v.flags, sim_ms: v.simMs, verify_ms: v.verifyMs,
+      status: 'queued', input_count: rec.inputs.length, ghost: null,
     }, {
       ipHash: iph, ipHint: ID.ipMask(ip), fp: fp, reveal: body.reveal !== false,
       challengeOf: challengeOf, clientVer: body.clientVer, lang: body.lang, issuedAt: tok.issuedAt,
     });
 
-    const top = DB.topOfBoard(board);
-    return json(res, 200, {
-      status: run.status, share: run.share, url: '/r/' + run.share,
-      hardFlags: v.hard, softFlags: (v.flags || []).filter(function (f) { return V.SEVERITY[f] !== 'hard'; }),
-      rank: run.rank_at_submit, total: DB.countBoard(board),
-      isTop: !!(top && top.id === run.id),
-      bestRank: DB.bestRankOf(run.id),
-      flags: v.flags, metrics: v.metrics,
+    const added = queue.add({
+      id: run.id, packed: String(body.replay), board: board, mode: rec.mode,
+      score: rec.score, ticks: rec.ticks, fp: fp, ipHash: iph, issuedAt: tok.issuedAt,
+    });
+    if (!added.ok) {
+      DB.finalizeRun(run.id, { status: 'rejected', reject: 'queue-full', verified_at: DB.now() });
+      return json(res, 503, { error: 'queue-full', depth: added.pos }, { 'Retry-After': '60' });
+    }
+
+    return json(res, 202, {
+      status: 'queued', share: run.share, url: '/r/' + run.share,
+      tier: added.tier, queue: queue.position(run.id),
       displayName: dn.name || null,
       codename: fp ? ID.codename(fp, body.lang) : null,
-      fp: fp, verifyMs: v.verifyMs, simMs: v.simMs,
+      fp: fp,
     }, { 'Cache-Control': 'no-store' });
   }
 
@@ -453,10 +512,14 @@ function startJobs() {
 
 if (require.main === module) {
   startJobs();
+  /* 워커 격자는 첫 제출 때 만드는 게 아니라 지금 만든다 — 워커 한 개 기동에 ~200ms 걸려
+     그 비용이 아무 관계 없는 첫 사용자에게 떨어지는 걸 막는다. */
+  queue.start();
   try { DB.snapshot(10); } catch (e) { console.error('[snap] 초기 스냅샷 실패:', e.message); }
+  try { queue.recover(); } catch (e) { console.error('[queue] 복구 실패:', e.message); }
   server.listen(CFG.PORT, CFG.HOST, () => {
-    console.log('NEON TETRIS  http://localhost:' + CFG.PORT + '   data: ' + CFG.DATA_DIR);
+    console.log('NEON TETRIS  http://localhost:' + CFG.PORT + '   data: ' + CFG.DATA_DIR + '   workers: ' + CFG.LIMITS.workers);
   });
 }
 
-module.exports = { server, handleApi };
+module.exports = { server, handleApi, queue };

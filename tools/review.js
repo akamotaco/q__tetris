@@ -38,9 +38,11 @@ function detail(share) {
   console.log('share      :', r.share, '→ /r/' + r.share);
   console.log('상태        :', r.status, r.flags ? '(' + r.flags + ')' : '');
   console.log('보드/포인트 :', r.board, '점수', r.score.toLocaleString(), '/', r.lines, 'L /', RP.fmtTime(r.ticks), '/ 조각', r.pieces);
+  let mp = {}; try { mp = JSON.parse(r.metrics || '{}'); } catch (e) { }
   console.log('지표        :', JSON.stringify({
     pps: +Number(r.pps || 0).toFixed(2), apm: +Number(r.apm || 0).toFixed(1),
     inputs: r.input_count, tetrises: r.tetrises, tspins: r.tspins, pcs: r.pcs,
+    gapModeShare: mp.gapModeShare, gapStdev: mp.gapStdev, reactMedian: mp.reactMedian, reactFastShare: mp.reactFastShare, stackPeak: mp.stackPeak, hardShare: mp.hardShare,
   }));
   console.log('소유(검사용) :', own ? own.codename + ' · ' + own.fp + (own.display_name ? ' · "' + own.display_name + '"' : ' (이름 없음)') : '없음');
   console.log('네트워크     :', r.ip_hint || '(파기됨)', '/ 해시 ' + (r.ip_hash || '-').slice(0, 8));

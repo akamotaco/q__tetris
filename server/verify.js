@@ -18,7 +18,7 @@ const EN = require('../engine.js');
 const RP = require('../replay.js');
 const ID = require('../identity.js');
 const CFG = require('./config');
-const DB = require('./db');
+/* db 는 publicRun 이 불릴 때만 지연 require 한다 — 워커 스레드가 DB 를 열지 않게 */
 
 /* ================= digest (내용 주소화) ================= */
 /**
@@ -295,15 +295,23 @@ function publicRun(run, opt) {
     share: run.share, board: run.board, mode: run.mode, level: run.level, g20: !!run.g20,
     score: run.score, lines: run.lines, pieces: run.pieces, ticks: run.ticks,
     duration: RP.seconds(run.ticks), status: run.status,
-    flags: run.flags ? JSON.parse(run.flags) : [],
-    rankAtSubmit: run.rank_at_submit, submittedAt: run.submitted_at,
+    queued: run.status === 'queued' || run.status === 'verifying',
+    flags: (function () { try { return run.flags ? JSON.parse(run.flags) : []; } catch (e) { return []; } })(),
+    rankAtSubmit: run.rank_at_submit, submittedAt: run.submitted_at, verifiedAt: run.verified_at || null,
     fp: run.fp || null,
     codename: null, ipHint: null,
+    metrics: (function () {
+      try { return Object.assign({ pps: run.pps, apm: run.apm, inputs: run.input_count, inpRate: run.inp_rate }, run.metrics ? JSON.parse(run.metrics) : {}); }
+      catch (e) { return { pps: run.pps, apm: run.apm, inputs: run.input_count }; }
+    })(),
+    reject: run.reject || null, mismatch: (function () { try { return run.mismatch ? JSON.parse(run.mismatch) : null; } catch (e) { return null; } })(),
     tetrises: run.tetrises, tspins: run.tspins, pcs: run.pcs,
     challengeOf: run.challenge_of || null,
     overReason: run.over_reason,
   };
-  const own = run.fp ? DB.ownerOf(run.fp) : null;
+  o.hardFlags = o.flags.filter(function (f) { return SEVERITY[f] === 'hard'; });
+  o.softFlags = o.flags.filter(function (f) { return SEVERITY[f] !== 'hard'; });
+  const own = run.fp ? require('./db').ownerOf(run.fp) : null;
   if (own) o.codename = own.codename;
   if (opt.reveal) {
     // 이름이 보이는 유일한 경로: 제출자가 공유를 택한 링크

@@ -25,15 +25,22 @@ const LIMITS = {
   bodyBytes: 512 * 1024,        // 제출 본문 상한
   maxInputs: 40000,
   maxTicks: 4 * 3600 * 60,    // 4시간(틱 단위! 864,000 틱)
-  /** 물리 하한: 사람보다 빠른 순간 속도는 "계산이 대신 돌렸다"는 뜻이므로 기각. */
-  minTicksAbs: 45,              // 0.75초 미만 실행은 제출 불가(퇴화 제출 차단)
-  flagTicksPerPiece: 10,        // 조각당 10틱 미만 = 6 PPS 이상 → 의심 플래그
-  flagTicksPerLine: 24,         // 줄당 24틱 미만 = 초당 2.5줄 → 의심 플래그
+  /** 속도 관련 하한은 **플래그** 용도(기각 아님). 렌더가 밀리면 게임 시간이 압축되어
+   *  정직한 플레이어도 초인적으로 보일 수 있다. 기각은 형태/시드/불일치/월클럭만. */
+  minTicksAbs: 45,              // 0.75초 미만 실행은 제출 불가
+  flagTicksPerPiece: 10,        // 조각당 10틱 미만 = 6 PPS 이상 → 의심
+  flagTicksPerLine: 24,         // 줄당 24틱 미만 = 초당 2.5줄 → 의심
   // 레이트리밋 (fp/ip 기준, 분 단위 윈도우)
   tokenPerHour: 40,
   submitPerHour: 30,
   submitPerMin: 6,
   boardCacheMs: 5000,
+  /* 검증 큐 — 재시뮬은 CPU를 먹고 요청 경로(단일 스레드)를 막으므로 워커로 보낸다. */
+  workers: parseInt(process.env.NT_WORKERS || '0', 10) || Math.max(1, Math.min(4, require('os').cpus().length - 1)),
+  queueCap: parseInt(process.env.NT_QUEUE_CAP || '400', 10),   // 대기열 상한(초과 시 503/429)
+  inFlightPerIp: parseInt(process.env.NT_INFLIGHT_IP || '2', 10),   // 한 네트워크의 동시 대기 제출
+  inFlightPerFp: 3,
+  etaPerTick: 1.15e-6,            // 틱당 예상 검증 시간(초) — 대기 위치 안내용
   ipRetentionDays: 30,
   rejectsBeforeBan: 6,          // 1시간 내 기각 6회 → 차단 (위조 반복 시도)
   /**

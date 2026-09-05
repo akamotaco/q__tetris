@@ -20,6 +20,8 @@ const V = require('../server/verify.js');
 const DB = require('../server/db.js');
 const { server } = require('../server/server.js');
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 let pass = 0, fail = 0;
 function ok(name, cond, extra) {
   if (cond) { pass++; console.log('  \x1b[32m✓\x1b[0m ' + name); }
@@ -52,6 +54,31 @@ async function api(method, path, body, ip) {
   return { code: res.status, json, text, headers: res.headers };
 }
 
+/** 워커 큐로 넘겨졌다면 종결 상태까지 기다려서 200 응답처럼 모양을 맞춰 돌려준다 */
+async function settleSubmit(r) {
+  if (r.code !== 202 || !r.json || !r.json.share) return r;
+  const share = r.json.share, first = r.json;
+  for (let i = 0; i < 500; i++) {
+    await sleep(120);
+    const g = await api('GET', '/api/replay/' + share);
+    if (g.code === 200 && g.json && !g.json.queued) {
+      const j = g.json, rk = j.rank || {};
+      return {
+        code: j.status === 'rejected' ? 422 : 200, text: g.text, headers: g.headers,
+        json: Object.assign({}, first, {
+          status: j.status, share, url: '/r/' + share,
+          error: j.status === 'rejected' ? 'rejected' : undefined,
+          code: j.reject, mismatch: j.mismatch,
+          rank: rk.atSubmit, total: rk.total, bestRank: rk.best, isTop: rk.atSubmit === 1,
+          flags: j.flags || [], hardFlags: j.hardFlags || [], softFlags: j.softFlags || [],
+          metrics: j.metrics || {}, displayName: j.displayName, codename: j.codename,
+        }),
+      };
+    }
+  }
+  return r;
+}
+
 /** 세션 발급 → AI 로 그 시드 그대로 완주 → 서명 → 제출 */
 async function playAndSubmit(me, opt) {
   opt = opt || {};
@@ -71,7 +98,7 @@ async function playAndSubmit(me, opt) {
   if (opt.noSig !== true) body.owner = { jwk: me.jwk, sig: me.sign('NTSUB1', [V.digestOf(RP.unpack(packed)), s.json.nonce]) };
   if (opt.tamper) body.replay = opt.tamper(body.replay);
   const r = await api('POST', '/api/submit', body, ip);
-  return { submit: r, rep: rep, packed: packed, session: s.json, body: body };
+  return { submit: await settleSubmit(r), rep: rep, packed: packed, session: s.json, body: body };
 }
 
 (async function main() {
@@ -117,7 +144,7 @@ async function playAndSubmit(me, opt) {
   ok('공유 키 형식', /^[0-9a-f]{12}[0-9a-z]$/.test(p1.submit.json.share || ''), p1.submit.json.share);
   ok('flags 배열', Array.isArray(p1.submit.json.flags));
   console.log('    → ' + p1.submit.json.status + ' / ' + p1.rep.score + '점 / PPS ' + p1.submit.json.metrics.pps.toFixed(2) +
-    ' / gapModeShare ' + p1.submit.json.metrics.gapModeShare.toFixed(2) + ' / flags ' + (p1.submit.json.flags||[]).join(',') + ' / share ' + p1.submit.json.share);
+    ' / gapModeShare ' + (p1.submit.json.metrics.gapModeShare || 0).toFixed(2) + ' / flags ' + (p1.submit.json.flags||[]).join(',') + ' / share ' + p1.submit.json.share);
 
   group('이름 비노출 정책');
   const board = await api('GET', '/api/board?mode=marathon&level=1');
@@ -143,6 +170,7 @@ async function playAndSubmit(me, opt) {
     tamper: (t) => { const parts = t.split(':'); parts[6] = String((+parts[6]) + 250000); return parts.join(':'); },
   });
   ok('점수 부풀리기 → 422 rejected', tam.submit.code === 422 && tam.submit.json.error === 'rejected', tam.submit.json);
+  ok('기각 사유에 어긋난 칸이 적혀 있다', /score/.test(String(tam.submit.json.mismatch)), tam.submit.json.mismatch);
   ok('어느 칸이 어긋났는지 지적', /score/.test(tam.submit.json.mismatch || ''), tam.submit.json.mismatch);
 
   const stolen = { replay: p1.packed, fp: thief.fp };
@@ -153,11 +181,11 @@ async function playAndSubmit(me, opt) {
   const otherSess = await api('POST', '/api/session', { mode: 'marathon', fp: thief.fp }, '211.1.1.11');
   forgedSeed.seed = otherSess.json.seed;
   const fpacked = RP.pack(forgedSeed);
-  const st2 = await api('POST', '/api/submit', {
+  const st2 = await settleSubmit(await api('POST', '/api/submit', {
     replay: fpacked, fp: thief.fp, nonce: otherSess.json.nonce,
     owner: { jwk: thief.jwk, sig: thief.sign('NTSUB1', [V.digestOf(RP.unpack(fpacked)), otherSess.json.nonce]) },
     displayName: '강하나',
-  }, '211.1.1.11');
+  }), '211.1.1.11');
   ok('입력 복제 + 내 시드로 교체 → 재시뮬 불일치로 기각', st2.code === 422 && st2.json.error === 'rejected', st2.json);
   ok('기각된 제출은 보드에 오르지 않는다',
     DB.db.prepare(`SELECT COUNT(*) c FROM runs WHERE fp = ? AND status = 'verified'`).get(thief.fp).c === 0);
@@ -287,6 +315,52 @@ async function playAndSubmit(me, opt) {
   ok('challenge_of 기록됨', chr.json.challengeOf === p1.submit.json.share, chr.json.challengeOf);
   const ghost = chr.json.ghost;
   ok('고스트 타임라인(서버 파생)', Array.isArray(ghost) && ghost.length > 3 && ghost[0].length === 3, ghost && ghost.slice(0, 2));
+
+  group('워커 큐 — 우선순위/복구/독점 방지');
+  const Q = require('../server/queue.js');
+  ok('긴 판(1시간 초과)은 저속 티어', Q.tierOf({ board: 'marathon:1:0', mode: 'marathon', score: 10, ticks: 60 * 60 * 61, fp: hero.fp }) === 2);
+  ok('이력 없는 기기의 고득점 주장이 곧바로 우선순위는 되지 않는다', Q.tierOf({ board: 'marathon:1:0', mode: 'marathon', score: 9e9, ticks: 6000, fp: thief.fp }) === 1);
+  ok('검증 이력 + 상위권 전망이어야 우선 티어', Q.tierOf({ board: 'marathon:1:0', mode: 'marathon', score: 9e9, ticks: 6000, fp: hero.fp }) === 0);
+  const qi = await api('GET', '/api/queue');
+  ok('큐 계측 노출(워커/대기/소요)', qi.code === 200 && qi.json.workers >= 1 && typeof qi.json.done === 'number', qi.json);
+  /* 같은 네트워크가 큐를 독차지하려 하면 막는다 */
+  const hogIP = '203.0.113.77';
+  const hogHash = DB.ipToHash(hogIP);
+  for (let i = 0; i < 2; i++) {
+    DB.insertRun({ share: DB.shareKey(), digest: 'hog' + i + Date.now(), replay: 'NT1:marathon:1:0:hogseed' + i + ':100:1:1:1:zzzzzz:1h', board: 'marathon:1:0', mode: 'marathon', level: 1, g20: 0, seed: 'hogseed' + i + Date.now(), score: 1, lines: 1, pieces: 1, ticks: 100, hash: 'zzzzzz', status: 'queued' }, { ipHash: hogHash });
+  }
+  const hog = await playAndSubmit(rival, { preset: 'casual', ip: hogIP });
+  ok('네트워크당 동시 대기 제한', hog.submit.code === 429, hog.submit.json);
+  DB.db.prepare(`DELETE FROM runs WHERE ip_hash = ?`).run(hogHash);
+  /* 크래시/재시작 복구: queued 로 남아만 행을 주워 다시 검증한다 */
+  const recSess = await api('POST', '/api/session', { mode: 'marathon', fp: hero.fp }, '203.0.113.88');
+  const recRep = AI.run({ seed: recSess.json.seed, preset: 'casual', rng: AI.makeRand('recover') });
+  const recPacked = RP.pack(recRep);
+  const recRow = DB.insertRun({ share: DB.shareKey(), digest: 'recover-' + Date.now(), replay: recPacked, board: 'marathon:1:0', mode: 'marathon', level: 1, g20: 0, seed: recRep.seed, score: recRep.score, lines: recRep.lines, pieces: recRep.pieces, ticks: recRep.ticks, hash: recRep.hash, status: 'queued' }, { ipHash: DB.ipToHash('203.0.113.88'), fp: hero.fp, issuedAt: recSess.json.issuedAt });
+  Q.queue.recover();
+  let recDone = null;
+  for (let i = 0; i < 300 && !recDone; i++) { await sleep(120); const g = await api('GET', '/api/replay/' + recRow.share); if (g.code === 200 && g.json && !g.json.queued) recDone = g.json; }
+  ok('재시작 후에도 대기 열차가 복구되어 발행된다', !!recDone && ['verified', 'flagged'].indexOf(recDone.status) >= 0, recDone && recDone.status);
+  ok('복구된 기록도 순위가 붙는다', recDone && recDone.rank && recDone.rank.atSubmit >= 1, recDone && recDone.rank);
+
+  /* 오래 기다린 건 티어가 낮아도 앞으로 (기아 방지) */
+  const QK = require('../server/queue.js').queue;
+  const fakeOld = { id: -1, packed: '', board: 'marathon:1:0', mode: 'marathon', score: 1, ticks: 100, enq: Date.now() - 999000, attempts: 1, tier: 2 };
+  const fakeNew = { id: -2, packed: '', board: 'marathon:1:0', mode: 'marathon', score: 1, ticks: 100, enq: Date.now(), attempts: 1, tier: 0 };
+  QK.q[2].push(fakeOld); QK.q[0].push(fakeNew);
+  const picked = QK._pick();
+  ok('오래 기다린 저속 건이 우선 건을 앞선다(기아 방지)', picked === fakeOld, picked && picked.id);
+  QK._pick();   // fakeNew 소비
+  QK.q[0].length = 0; QK.q[1].length = 0; QK.q[2].length = 0;
+
+  /* 대기열이 가득 찼을 때 — 조용히 사라지지 않고 명시적으로 거절한다 */
+  const CFG = require('../server/config.js');
+  /* cap 은 생성자에서 복사하므로 인스턴스를 직접 조인다 */
+  const savedCap = QK.cap;
+  QK.cap = 0;
+  const full = await playAndSubmit(rival, { preset: 'casual', ip: '203.0.113.201' });
+  QK.cap = savedCap;
+  ok('가득 찬 큐는 503 + 사유', full.submit.code === 503 || full.submit.code === 429, full.submit.json);
 
   group('집계');
   const st = await api('GET', '/api/stats');

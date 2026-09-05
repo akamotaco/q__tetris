@@ -23,7 +23,10 @@ PORT=80 NT_SECRET=... node server/server.js
 | `NT_DATA` | `./data` | SQLite(`tetris.db`)·시크릿 저장 경로 |
 | `NT_BASE_URL` | 요청 Host 로 추론 | 공유 링크 절대 URL(OG) 생성 |
 | `NT_TRUST_HOPS` | `1` | 신뢰하는 프록시 hop 수. 리버스 프록시 뒤가 아니면 `0` (아니면 XFF 위조로 레이트리밋·IP 힌트 조작 가능) |
-| `NT_SIM_SLOTS` | `3` | 동시에 재시뮬할 요청 수(CPU 보호). 초과 시 503 + `Retry-After` |
+| `NT_WORKERS` | 코어-1, 최대 4 | 재시뮬 워커 수. 1코어 VPS 면 `1` |
+| `NT_QUEUE_CAP` | `400` | 검증 대기열 상한. 초과 시 503 + `Retry-After: 60` |
+| `NT_INFLIGHT_IP` | `2` | 한 네트워크(IP 해시)의 동시 대기 제출 수. 초과 시 429 |
+| `NT_PROMOTE_MS` | `90000` | 이만큼 기다린 검증 건은 티어와 무관하게 앞으로(기아 방지) |
 | `NT_TEST_MODE` | ✕ | **운영 금지.** 월클럭 검사·레이트리밋을 완화한다 |
 
 정적 파일은 **허용 목록**(`server/server.js:STATIC`)만 제공한다. 새 에셋을 추가하면 목록에도 넣어라 — 목록에 없는 것은 404라 `server/`, `data/`, `tools/` 노출 사고가 구조적으로 불가능하다.
@@ -96,6 +99,22 @@ docker run -d -p 8787:8787 -v $PWD/data:/app/data --env-file secret.env --restar
 - 여러 노드로 띄우면 SQLite는 쓰기 경합이 생긴다(재시뮬 병렬도는 괜찮아도 등록은 직렬). 스케일 아웃이 필요해지면 **LiteFS**(Fly)나 Postgres로 옮긴다. 그때도 `engine.js`/`verify.js`는 그대로 쓴다.
 - 파기 작업(IP 해시·레이트 테이블)은 서버가 10분/1시간 주기로 자동으로 돌린다. 기록 자체는 삭제하지 않는다.
 
+## 6.5 큐 모니터링
+
+`GET /api/queue` 와 `GET /api/health` 가 큐 상태를 돌려준다:
+
+```json
+{ "workers": 2, "busy": 0, "depth": {"t0":0,"t1":0,"t2":0}, "waiting": 0,
+  "done": 200, "rejected": 0, "failed": 0,
+  "simAvgMs": 8.3, "simMaxMs": 26, "waitAvgMs": 874, "waitMsMax": 1647, "depthMax": 192,
+  "loopLag": {"n":556,"p50":11.7,"p95":12.4,"max":448.5} }
+```
+
+- `waiting` 이 계속 커진다 → 워커를 늘리거나(코어 여유 확인) `NT_QUEUE_CAP` 로 폭주를 깎는다.
+- `loopLag.p95` 가 커진다 → **메인 스레드가 막히고 있다는 뜻**(규칙상 검증은 워커에서 도므로, 대개 디스크/네트워크/대용량 요청 쪽 문제다).
+- `failed` 는 워커 크래시 재시도 소진. 0 이 정상이다.
+- 스케일 아웃: 워커는 프로세스 안의 CPU 풀이다. 여러 인스턴스로 늘리면 인스턴스마다 자기 큐를 돌린다(SQLite 쓰기가 직렬이므로 동시 발행이 경합한다 — 라이트웨이는 LiteFS 또는 Postgres 로).
+
 ## 7. 운영/검수
 
 ```bash
@@ -115,5 +134,6 @@ node tools/review.js --hide <share>  # 목록 제외 → hidden (데이터는 �
 - [ ] `NT_TRUST_HOPS`가 실제 프록시 구조와 일치 (프록시 없으면 0)
 - [ ] `data/` 가 로컬 디스크 + 백업 cron
 - [ ] `npm test && npm run test:browser` 통과
+- [ ] `npm run load` 로 폭주 시뮬레이션: `waiting` 이 쌓여도 `loopLag.p95` 가 조용한지
 - [ ] `NT_TEST_MODE` 미설정 확인
 - [ ] `GET /api/health`, `GET /api/board?mode=marathon` 응답 확인
