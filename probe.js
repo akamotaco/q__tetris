@@ -33,6 +33,14 @@ const errors = [];
 function getJSON(p) {
   return fetch('http://127.0.0.1:' + PORT + p).then((r) => r.json());
 }
+
+/* 이 파일에는 ok() 헬퍼가 없다(실패를 errors 배열에 모아 종료 코드로 알린다) */
+let checks = 0, checkFails = 0;
+function ok2(cond, label, detail) {
+  checks++;
+  if (cond) console.log('    PASS ' + label);
+  else { checkFails++; console.log('    FAIL ' + label + (detail !== undefined ? ' -> ' + JSON.stringify(detail) : '')); errors.push('CHECK: ' + label); }
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitForTarget() {
@@ -454,7 +462,30 @@ async function waitForTarget() {
   if (startPath.err) errors.push('START: ' + startPath.err);
   if (!startPath.meta || startPath.meta.rules !== RULES_EXPECT) errors.push('START: 녹화 메타 규칙 버전이 예상과 다름 → ' + (startPath.meta && startPath.meta.rules) + ' (기대 ' + RULES_EXPECT + ')');
 
-  console.log('\n[8] 스크린샷 저장');
+  console.log('\n[9] 크로스 런타임 결정론 — 브라우저 엔진과 서버(노드) 재시뮬이 같은 결과를 내야 검증이 성립한다');
+  const EN = require('./engine.js');
+  const AI = require('./tools/ai.js');
+  const repP = AI.run({ seed: 'parity-7742', preset: 'ace', rng: AI.makeRand('parity') });
+  const cut = repP.inputs.filter(function (i) { return i.t <= 7200; });      // 약 2-minute 분량만 (빠르게)
+  const repCut = { seed: repP.seed, mode: repP.mode, level: repP.level, g20: repP.g20, inputs: cut };
+  const nodeOut = (function () {
+    const r = EN.simulate(repCut, {});
+    const x = r.engine.result();
+    return { score: x.score, lines: x.lines, pieces: x.pieces, ticks: x.ticks, hash: x.hash, rules: x.rules };
+  })();
+  const brOut = JSON.parse(await evalJS(`(async () => {
+    const rep = ${JSON.stringify(repCut)};
+    const r = window.TetrisEngine.simulate(rep, {});
+    const x = r.engine.result();
+    return JSON.stringify({ score: x.score, lines: x.lines, pieces: x.pieces, ticks: x.ticks, hash: x.hash, rules: x.rules });
+  })()`, true));
+  console.log('    node:', JSON.stringify(nodeOut));
+  console.log('    browser:', JSON.stringify(brOut));
+  if (JSON.stringify(nodeOut) !== JSON.stringify(brOut)) errors.push('PARITY: 브라우저와 노드 재시뮬이 다름 → ' + JSON.stringify({ node: nodeOut, browser: brOut }));
+  ok2(nodeOut.hash === brOut.hash && nodeOut.score === brOut.score && nodeOut.ticks === brOut.ticks && nodeOut.rules === brOut.rules,
+    '같은 입력 → 같은 점수/틱/보드해시 (크로스 런타임)');
+
+  console.log('\n[10] 스크린샷 저장');
   await cmd('Emulation.setDeviceMetricsOverride', { width: 400, height: 780, deviceScaleFactor: 2, mobile: true });
   await sleep(600);
   const shot2 = await cmd('Page.captureScreenshot', { format: 'png' });
