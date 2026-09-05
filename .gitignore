@@ -2,3 +2,6 @@ data/
 *.log
 .DS_Store
 node_modules/
+e2e-packed.txt
+*.db-wal
+*.db-shm

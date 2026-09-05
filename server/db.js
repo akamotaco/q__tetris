@@ -8,7 +8,19 @@
  *  · 닉네임(display_name)은 기록의 메타데이터일 뿐 조회 키로 쓰지 않는다 → 이름으로 뒤지는 공격면이 없다.
  */
 'use strict';
-const { DatabaseSync } = require('node:sqlite');
+/* node:sqlite 는 v22.5.0 에 실험 기능으로 들어왔고, **22.5–23.3 에서는 --experimental-sqlite 플래그가 있어야** 열린다.
+   없는 상태에서 require 하면 ERR_UNKNOWN_BUILTIN_MODULE 이라는 알 수 없는 메시지가 나므로 여기서 막는다. */
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = require('node:sqlite'));
+} catch (e) {
+  console.error('node:sqlite 를 불러오지 못했습니다. Node 버전을 확인하세요.');
+  console.error('  · Node >= 23.4 (24 LTS 권장) : 그대로 실행');
+  console.error('  · Node 22.5 – 23.3       : node --experimental-sqlite server/server.js');
+  console.error('  · Node < 22.5             : 서버 기능(기록 제출) 없이 index.html 만 플레이 가능');
+  console.error('  현재: ' + process.version + ' / 원인: ' + e.message);
+  process.exit(1);
+}
 const crypto = require('crypto');
 const CFG = require('./config');
 const NAMES = require('../identity.js');

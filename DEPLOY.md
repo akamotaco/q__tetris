@@ -2,16 +2,42 @@
 
 의존성 설치 없음(`npm install` 할 것이 없다). Node만 있으면 된다.
 
+## 0. 소스 / 저장소
+
+이 프로젝트의 git remote `origin` 은 **머신 안의 로컬 베어 저장소**다(서버 불필요, 백업 용도):
+
 ```bash
-node --version    # v22.5 이상 — node:sqlite 가 이부터 내장
+git remote -v            # origin → C:/Users/akamo/repos/neon-tetris.git
+git push origin master   # 커밋 후 백업까지
+git tag -a v1.2 -m '...' && git push origin --tags
+```
+
+실제 호스팅으로 올릴 때는 그 베어 저장소를 리모트로 바꾸거나, 최초 1회 복사로 씨를 뿌린다.
+
+```bash
+git clone /path/to/repos/neon-tetris.git /srv/neon-tetris      # 최초 배포
+# 또는: scp/rsync 로 복제 후 서버에서 git init 하는 대신 파일만 올려도 돌아간다(빌드 없음)
+
+cd /srv/neon-tetris && git pull --ff-only && sudo systemctl restart neon-tetris   # 업그레이드
+sudo systemctl stop neon-tetris && cp -a data data.bak-$(date +%F) && sudo systemctl start neon-tetris   # 롤백 전 백업
 ```
 
 ## 1. 로컬/테스트
 
 ```bash
+node --version    # 23.4 이상 권장(24 LTS 무난). node:sqlite 가 플래그 없이 열리기 시작한다
 node server/server.js                     # http://localhost:8787, DB: ./data/tetris.db
 PORT=80 NT_SECRET=... node server/server.js
 ```
+
+**Node 22.5 – 23.3 을 써야 한다면 플래그를 붙여라** — 안 붙히면 `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` 로 죽는다(지금의 `server/db.js` 는 그 상황에서 읽을 수 있는 안내를 띄운다):
+
+```bash
+node --experimental-sqlite server/server.js
+```
+
+systemd 를 쓰면 `ExecStart=/usr/bin/node --experimental-sqlite server/server.js` 로. Docker 이미지는 `node:24-slim` 이라 필요 없다.
+`package.json` 의 `engines` 는 최솟값만 걸어 두었다 — 실제로는 24 LTS 를 권한다.
 
 ## 2. 환경변수
 
@@ -115,8 +141,27 @@ docker run -d -p 8787:8787 -v $PWD/data:/app/data --env-file secret.env --restar
 - `failed` 는 워커 크래시 재시도 소진. 0 이 정상이다.
 - 스케일 아웃: 워커는 프로세스 안의 CPU 풀이다. 여러 인스턴스로 늘리면 인스턴스마다 자기 큐를 돌린다(SQLite 쓰기가 직렬이므로 동시 발행이 경합한다 — 라이트웨이는 LiteFS 또는 Postgres 로).
 
-## 7. 운영/검수
+## 6.9 규칙 버전(`RULES_ID`)을 올리며 배포하기
 
+엔진의 규칙(점수표·SRS 킥·T-스핀 판정·락 딜레이·장식과 판정이 엮인 모든 것)을 바꾸면 `engine.js` 의 `RULES_ID` 를 올린다.
+그러면 배포 후에 이런 일이 일어난다 — 전부 **의도된 동작**이고, 고른 적 없는 데이터는 조용히 사라지지 않는다:
+
+| 대상 | 새 버전 배포 후 |
+| --- | --- |
+| 이미 검증된 순위 행 | 그대로 보드에 남는다 (append-only. 점수를 사후 재계산하지 않는다) |
+| 과거 규칙의 리플레이 **재제출** | 재시뮬 전에 `rules-version:<old>!=<new>` 으로 기각 (CPU를 태우지 않음) |
+| 과거 규칙의 `/r/<share>` 페이지 | 열린다. 다만 재생은 **현재 엔진으로** 재시뮬하므로 조각이 놓이는 위치가 달라 보일 수 있다 |
+| 진행 중이던 시드 토큰 | 배포로 재기동하면 만료된다(사용자는 그냥 새로 시작) |
+
+지킬 것 두 개:
+
+1. **올리기 전에 DB 백업** — `cp -a data data.bak-$(date +%F)`. 되돌릴 수 없는 방향으로 데이터가 쌓이기 시작한다.
+2. `tools/probe.js` 의 `RULES_EXPECT` 와 README 규칙 표를 **함께** 올린다. 테스트가 일부러 깨지게 해 두었다 — 버전 번호를 무시하고 넘어가지 못하게.
+
+과거 리플레이를 앞으로도 재생/검증할 계획이라면, 그 버전 엔진 스냅샷을 따로 보관해야 한다(예: `legacy/r1/engine.js`).
+아직은 하지 않는다 — 공개된 리플레이가 없는 지금이 규칙을 고칠 수 있는 가장 싼 순간이기 때문이다.
+
+## 7. 운영/검수
 ```bash
 node tools/review.js                 # 플래그 대기열(지표·네트워크·지문·순위 이력)
 node tools/review.js --show <share>  # 상세
@@ -133,6 +178,7 @@ node tools/review.js --hide <share>  # 목록 제외 → hidden (데이터는 �
 - [ ] HTTPS + `NT_BASE_URL` 설정 → `/r/<share>` 의 OG 미리보기가 카톡/디코드에 뜨는지 확인
 - [ ] `NT_TRUST_HOPS`가 실제 프록시 구조와 일치 (프록시 없으면 0)
 - [ ] `data/` 가 로컬 디스크 + 백업 cron
+- [ ] 규칙을 바꿨다면 `RULES_ID` · `tools/probe.js:RULES_EXPECT` · README 규칙 표 셋 다 올렸는가
 - [ ] `npm test && npm run test:browser` 통과
 - [ ] `npm run load` 로 폭주 시뮬레이션: `waiting` 이 쌓여도 `loopLag.p95` 가 조용한지
 - [ ] `NT_TEST_MODE` 미설정 확인
