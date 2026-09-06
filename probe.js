@@ -456,6 +456,33 @@ async function waitForTarget() {
     return JSON.stringify({stage:st.width+' x '+st.height, boardLeft:Math.round(bw.left), boardRight:Math.round(bw.right), touchBar:bt.display, bodyScrollW:document.body.scrollWidth, overflowing:wide, parts:parts});
   })()`);
   console.log('   ', mob);
+
+  /* 위 정보는 출력뿐이었다. 아래는 **고정 검정** — 레이아웃은 눈으로 확인하면 반드시 다시 망가진다
+     (실제로 이 세션에서 미디어 쿼리 범위를 잘못 잘라 #mineCard 숨김이 520px 전용으로 좁아졌다). */
+  const mobFix = JSON.parse(await evalJS(`(function(){
+    const r=(el)=>el?el.getBoundingClientRect():null;
+    const stage=r(document.getElementById('stage'));
+    const score=r(document.querySelector('.score-card'));
+    const tb=document.querySelector('.topbar');
+    const cv=r(document.getElementById('board'));
+    const probe=document.createElement('div'); probe.className='wb-row'; document.body.appendChild(probe);
+    const uiApplied=getComputedStyle(probe).display; probe.remove();
+    const clipped=[...document.querySelectorAll('button,select,input,a')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).map(e=>e.id||e.textContent||e.tagName).slice(0,4);
+    return JSON.stringify({
+      uiApplied: uiApplied,
+      topbarScroll: tb.scrollWidth, topbarClient: tb.clientWidth,
+      clip: clipped,
+      overlap: score && stage ? Math.round(Math.min(stage.bottom,score.bottom)-Math.max(stage.top,score.top)) : -1,
+      cell: cv ? Math.round(cv.height/20*10)/10 : 0,
+      mine: getComputedStyle(document.getElementById('mineCard')).display,
+    });
+  })()`));
+  ok2(mobFix.uiApplied === 'grid', 'ui.css 규칙이 페이지에 실제로 적용된다 (.wb-row 가 grid)', mobFix.uiApplied);
+  ok2(mobFix.topbarScroll <= mobFix.topbarClient + 1, '상단 바가 화면 폭을 넘치지 않는다', mobFix.topbarScroll + '>' + mobFix.topbarClient);
+  ok2(mobFix.clip.length === 0, '버튼/셀렉트가 화면 오른쪽 밖으로 잘리지 않는다', mobFix.clip);
+  ok2(mobFix.overlap <= 1, '보드가 SCORE 카드를 덮지 않는다', '겹침 ' + mobFix.overlap + 'px');
+  ok2(mobFix.cell >= 20, '모바일 칸 크기가 식별 가능한 수준(≥20px)', mobFix.cell + 'px');
+  ok2(mobFix.mine === 'none', '모바일에서 내 기록 카드는 접힌다', mobFix.mine);
   await cmd('Emulation.clearDeviceMetricsOverride');
 
   console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');
