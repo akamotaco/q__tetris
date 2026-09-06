@@ -263,7 +263,7 @@ async function handleApi(req, res, u) {
   if (req.method === 'GET' && seg[0] === 'period') {
     const period = q('period') || DB.periodKeys(DB.now()).week;
     const board = q('board');
-    const rows = DB.periodBoard(period, board, parseInt(q('limit') || '10', 10) || 10);
+    const rows = DB.periodBoardAny(period, board, parseInt(q('limit') || '10', 10) || 10);
     return json(res, 200, {
       period: period, board: board || null,
       rows: rows.map(r => ({
@@ -272,6 +272,46 @@ async function handleApi(req, res, u) {
         codename: r.fp ? ID.codename(r.fp, 'ko') : null,        // 기간 뷰도 이름은 싣지 않는다
       })),
     }, { 'Cache-Control': 'public, max-age=300' });
+  }
+  if (req.method === 'GET' && seg[0] === 'hof') {
+    /* 명예의 전당: 기간별 1위 + 최장 1위 유지.  ·여기서도 이름은 싣지 않는다(코드네임/지문만). */
+    const board = q('board');
+    const kind = q('kind') === 'month' ? 'month' : 'week';
+    const lim = Math.max(1, Math.min(12, parseInt(q('limit') || '8', 10) || 8));
+    const prefix = kind === 'week' ? 'w:' : 'm:';
+    const current = DB.periodKeys(DB.now())[kind];
+    const entry = function (row, p, live) {
+      return {
+        period: p, current: !!live, share: row.share, board: row.board, mode: row.mode,
+        score: row.score, lines: row.lines, ticks: row.ticks, fp: row.fp, status: row.status,
+        codename: row.fp ? ID.codename(row.fp, 'ko') : null,
+      };
+    };
+    const champions = [];
+    /* 진행 중인 기간은 스냅샬(1시간 주기)을 기다리지 않고 라이브로 넣는다.
+       안 그러면 막 세운 기록이 명예의 전당에 한 시간 동안 안 뜨고 빈 판이 보인다. */
+    const liveTop = DB.periodBoardAny(current, board, 1)[0];
+    if (liveTop) champions.push(entry(liveTop, current, true));
+    DB.periodList(board).forEach(function (p) {
+      if (champions.length >= lim || p.indexOf(prefix) !== 0 || p === current) return;
+      const row = DB.periodBoard(p, board, 1)[0];
+      if (row) champions.push(entry(row, p, false));
+    });
+    let longest = null;
+    if (board) {
+      const hold = DB.holdInfo(board);
+      const cand = (hold.past || []).slice();
+      if (hold.current) cand.push(Object.assign({}, hold.current, { held_ms: DB.now() - hold.current.since }));
+      cand.forEach(function (h) {
+        if (h.held_ms > 0 && (!longest || h.held_ms > longest.held_ms)) {
+          longest = { share: h.share, held_ms: h.held_ms, score: h.score, ticks: h.ticks, fp: h.fp, running: !h.until_ms };
+        }
+      });
+    }
+    /* 진행 중 기간은 라이브로 계산한다(제출 직후에 갱신돼야 한다). 그래도 캐시를 10분으로 두면
+         브라우저가 빈 판을 10분간 붙 들고 있어 '방금 세운 기록이 안 보인다' 가 된다. */
+    return json(res, 200, { kind: kind, board: board || null, current: current, champions: champions, longest: longest },
+      { 'Cache-Control': 'public, max-age=60' });
   }
   if (req.method === 'GET' && seg[0] === 'hold') {
     const board = DB.boardKey(q('mode') || 'marathon', parseInt(q('level') || '1', 10) || 1, q('g20') === '1');

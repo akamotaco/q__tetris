@@ -333,6 +333,9 @@
       ? '<div class="res warn">' + esc(L.t('submit.flagged')) + ' <code>' + esc(flagText(res.hardFlags || res.flags)) + '</code></div>'
       : '<div class="res ok">' + esc(L.t('submit.verified')) + '</div>' +
       ((res.softFlags && res.softFlags.length) ? '<div class="res note">' + esc(L.t('submit.soft')) + ' <code>' + esc(flagText(res.softFlags)) + '</code></div>' : '');
+    /* 방금 발행된 기록은 보드와 명예의 전당 둘 다에 영향 준다 — 둘 다 새로 고친다 (하나는 켜 놓고 안 하면 빈 채로 남아 있다) */
+    CL.loadBoard(true);
+    CL.loadHof(true);
     const rank = res.rank
       ? '<div class="rank">' + esc(L.t('submit.rank', { rank: res.rank, total: res.total })) +
       (res.isTop ? ' <b>' + esc(L.t('submit.newTop')) + '</b>' : '') + '</div>' : '';
@@ -480,13 +483,71 @@
           CL.loadBoard();
         });
       });
-      const rb = $('wbRefresh'); if (rb) rb.addEventListener('click', function () { CL.loadBoard(true); });
+      const rb = $('wbRefresh'); if (rb) rb.addEventListener('click', function () { CL.loadBoard(true); CL.loadHof(true); });
+    }
+    const ht = $('hofTabs');
+    if (ht) {
+      Array.prototype.forEach.call(ht.querySelectorAll('.tab'), function (t) {
+        t.addEventListener('click', function () {
+          hofKind = t.dataset.k;
+          Array.prototype.forEach.call(ht.querySelectorAll('.tab'), function (x) { x.classList.toggle('on', x === t); });
+          CL.loadHof();
+        });
+      });
     }
     const mb = $('mineClear');
     if (mb) mb.addEventListener('click', function () { lsSet(STORE.mine, '[]'); renderMine(); });
     renderMine();
     CL.loadBoard();
+    CL.loadHof();
     CL.loadStats();
+  };
+
+  /* ---------- 명예의 전당 ---------- */
+  let hofKind = 'week';
+  /** 기간 키(w:2026-W36 / m:2026-09) → 사람이 읽는 라벨 */
+  function periodLabel(key, current) {
+    if (current) return L.t('hof.this');
+    const m = /^([wm]):(\d{4})-(?:W(\d{1,2})|(\d{1,2}))$/.exec(String(key || ''));
+    if (!m) return String(key || '');
+    return m[1] === 'w'
+      ? L.t('hof.wk', { y: m[2], w: parseInt(m[3], 10) })
+      : L.t('hof.mo', { y: m[2], mo: parseInt(m[4], 10) });
+  }
+  CL.loadHof = async function (force) {
+    const list = $('hofList');
+    if (!list) return;
+    if (!optsRef) { list.innerHTML = '<div class="muted">' + esc(L.t('hof.empty')) + '</div>'; return; }
+    const board = optsRef.mode + ':' + optsRef.level + ':' + (optsRef.g20 ? 1 : 0);
+    list.innerHTML = '<div class="muted">' + esc(L.t('board.loading')) + '</div>';
+    /* 강제 갱신은 캐시를 빗간다 (max-age=60 이어도 "방금" 결과는 바로 보여야 한다) */
+    const r = await req('GET', '/api/hof?kind=' + hofKind + '&board=' + encodeURIComponent(board) + '&limit=8' + (force ? '&_=' + Date.now() : ''));
+    if (!r || r.offline || r.status !== 200) {
+      list.innerHTML = '<div class="muted">' + esc(L.t(r && r.offline ? 'err.network' : 'hof.empty')) + '</div>';
+      return;
+    }
+    const rows = (r.json && r.json.champions) || [];
+    const hint = $('hofHint');
+    if (hint) {
+      const lg = r.json && r.json.longest;
+      hint.textContent = lg ? L.t(lg.running ? 'hof.longestNow' : 'hof.longest', { time: fmtShort(lg.held_ms) }) : '';
+    }
+    if (!rows.length) { list.innerHTML = '<div class="muted">' + esc(L.t('hof.empty')) + '</div>'; return; }
+    const time = rows[0].mode === 'sprint';
+    list.innerHTML = rows.map(function (c) {
+      const val = time ? fmtTime(c.ticks) : (c.score || 0).toLocaleString();
+      const sec = time ? (c.score || 0).toLocaleString() + '점' : c.lines + 'L';
+      return '<div class="hof-row' + (c.current ? ' now' : '') + '" data-share="' + esc(c.share) + '">' +
+        '<span class="per">' + esc(periodLabel(c.period, c.current)) + '</span>' +
+        '<span class="cr">🏆</span>' +
+        '<span class="who">' + esc(c.codename || L.t('board.anon')) + '<em>' + esc(c.fp ? '·' + ID.fpCode(c.fp) : '') + '</em></span>' +
+        '<b class="mono">' + esc(val) + '</b>' +
+        '<span class="sub">' + esc(sec) + (c.status === 'flagged' ? ' ⚑' : '') + '</span>' +
+        '</div>';
+    }).join('');
+    Array.prototype.forEach.call(list.querySelectorAll('.hof-row'), function (el) {
+      el.addEventListener('click', function () { location.href = '/r/' + el.dataset.share; });
+    });
   };
 
   CL.loadBoard = async function (force) {

@@ -152,6 +152,20 @@ async function playAndSubmit(me, opt) {
   ok('보드 응답에 display_name 없음', board.text.indexOf('display_name') < 0);
   ok('보드 응답에 실제 이름 문자열 없음', board.text.indexOf('강하나') < 0);
   ok('보드에는 코드네임/지문만', /"codename":/.test(board.text) && /"fp":"/.test(board.text));
+  /* 명예의 전당(기간별 1위)도 이름이 있어선 안 된다 — 새 뷰를 붙일 때마다 여기 걸린다 */
+  const hofW = await api('GET', '/api/hof?kind=week&board=marathon:1:0&limit=5');
+  ok('명예의 전당 200', hofW.code === 200, hofW.code);
+  ok('명예의 전당에 displayName/display_name 키 없음',
+    hofW.text.indexOf('displayName') < 0 && hofW.text.indexOf('display_name') < 0, hofW.text.slice(0, 120));
+  ok('명예의 전당에 실제 이름 문자열 없음', hofW.text.indexOf('강하나') < 0 && hofW.text.indexOf('최둘리') < 0);
+  ok('명예의 전당은 kind/board/ champions 구조', Array.isArray(hofW.json.champions) && hofW.json.kind === 'week' && hofW.json.board === 'marathon:1:0',
+    JSON.stringify(hofW.json).slice(0, 120));
+  ok('주간 챔피언은 w: 기간 키만 담는다', hofW.json.champions.every(c => /^w:/.test(c.period)), JSON.stringify(hofW.json.champions.map(c => c.period)));
+  ok('1위 기록이 하나 있으면 챔피언 목록에도 있다', hofW.json.champions.length >= 1 ? hofW.json.champions.every(c => c.share && c.fp) : true);
+  const hofM = await api('GET', '/api/hof?kind=month&board=marathon:1:0');
+  ok('월간도 m: 기간 키만', hofM.json.champions.every(c => /^m:/.test(c.period)), JSON.stringify(hofM.json.champions.map(c => c.period)));
+  ok('최장 1위 유지 정보', !hofM.json.longest || (hofM.json.longest.held_ms > 0 && !!hofM.json.longest.share), JSON.stringify(hofM.json.longest));
+  ok('없는 보드/기간은 빈 목록(오류 아닌)', (await api('GET', '/api/hof?kind=week&board=sprint:20:0')).code === 200);
   const rp = await api('GET', '/api/replay/' + p1.submit.json.share);
   ok('공유 페이지 API 에는 이름 표시(reveal 기본 ON)', rp.json.displayName === '강하나', rp.json.displayName);
   ok('IP 힌트 노출', /\d+\.\d+\.xx\.xx/.test(rp.json.ipHint || ''), rp.json.ipHint);

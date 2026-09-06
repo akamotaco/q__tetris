@@ -30,6 +30,7 @@ async function seed() {
     ['ace', '한별', 4], ['human', '강하나', 8], ['bot', '기계손', 1],
     ['human', '최둘리', 12], ['casual', '_slow_', 16], ['ace', '달려라', 2],
   ];
+  const submitted = [];
   for (const [preset, name, level] of runs) {
     const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     const jwk = publicKey.export({ format: 'jwk' });
@@ -43,8 +44,22 @@ async function seed() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ replay: packed, fp, nonce: s.nonce, displayName: name, owner: { jwk, sig }, level }),
     })).json();
-    console.log(' seed', preset.padEnd(7), 'lv' + level, r.status, (r.flags || []).length ? '⚑' : '', '#' + r.rank);
-    require("../server/db.js").snapshot(10);
+    if (r && r.share) submitted.push({ preset: preset, name: name, level: level, share: r.share });
+    console.log(' seed', preset.padEnd(7), 'lv' + level, (r && r.status) || '?', '→', (r && r.share) || '-');
+  }
+  /* 발행(검증 완료)을 기다린다. 안 기다리면 스크린샷이 **빈 보드**로 나와서 useless 해진다. */
+  const DB = require('../server/db.js');
+  for (let i = 0; i < 120; i++) {
+    const pending = submitted.filter(function (s) {
+      const run = DB.getRunByShare(s.share);
+      return !run || run.status === 'queued' || run.status === 'verifying';
+    });
+    if (!pending.length) break;
+    await sleep(250);
+  }
+  for (const s of submitted) {
+    const run = DB.getRunByShare(s.share);
+    console.log('    ', s.preset.padEnd(7), 'lv' + s.level, run ? run.status : '?', run && run.rank_at_submit ? '#' + run.rank_at_submit : '');
   }
 }
 

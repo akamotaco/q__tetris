@@ -201,6 +201,39 @@ async function waitHttp(url, tries) {
   ok('서버 내부 파일 비공개', (await fetch(BASE + '/server/db.js')).status === 404);
   ok('DB 파일 비공개', (await fetch(BASE + '/data/tetris.db')).status === 404);
 
+  group('3.5 명예의 전당 UI (실제 브라우저 렌더 + 이름 비노출)');
+  const hof = JSON.parse(await ev(`(async () => {
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const card = document.getElementById('hofCard');
+    const list = document.getElementById('hofList');
+    const out = { card: !!card, rows: 0, who: [], text: '', week: 0, month: 0, hint: '' };
+    if (!card || !list) return JSON.stringify(out);
+    for (let i = 0; i < 40 && list.querySelector('.hof-row') == null && !/불러오는 중|loading|없/.test(list.textContent); i++) await sleep(100);
+    for (let i = 0; i < 40 && list.textContent.indexOf('불러오는') >= 0; i++) await sleep(100);
+    await sleep(300);
+    const rows = [...list.querySelectorAll('.hof-row')];
+    out.rows = rows.length;
+    out.week = rows.length;
+    out.who = rows.map(r => (r.querySelector('.who') ? r.querySelector('.who').textContent.trim() : ''));
+    out.text = list.innerText || list.textContent || '';
+    out.hint = (document.getElementById('hofHint') || {}).textContent || '';
+    const mTab = document.querySelector('#hofTabs .tab[data-k="month"]');
+    if (mTab) { mTab.click(); await sleep(900); out.month = list.querySelectorAll('.hof-row').length; }
+    return JSON.stringify(out);
+  })()`, true));
+  const hofApi = await (await fetch(BASE + '/api/hof?kind=week&board=marathon:1:0')).json();
+  ok('명예의 전당 카드가 있다', hof.card);
+  ok('주간 챔피언이 렌더됐다 (제출직 후라 1건 이상)', hof.week >= 1, hof);
+  const code5 = (fp) => String(fp || '').slice(0, 5);
+  const want = hofApi.champions.map(c => (c.codename || '') + '·' + code5(c.fp));
+  ok('화면의 코드네임·지문이 API 와 같다', JSON.stringify(hof.who) === JSON.stringify(want), [hof.who, want]);
+  ok('DOM 에 닉네임이 없다 (API 뿐 아니라 화면도)',
+    hof.who.every(w => w.indexOf('테스트플레이어') < 0) && hof.hint.indexOf('테스트플레이어') < 0, [hof.who, hof.hint]);
+  ok('월간 탭도 오류 없이 렌더', hof.month >= 0, hof.month);
+  ok('화면 행 수 == API champion 수', hof.week === hofApi.champions.length, [hof.week, hofApi.champions.length]);
+  ok('진행 중 기간은 라이브로 뜬다 (제출 직후 1위 = 나)',
+    hofApi.champions.length > 0 && hofApi.champions[0].current === true, JSON.stringify(hofApi.champions[0] || null));
+
   group('4. 공유 페이지에서 리플레이 재생');
   await navigate(BASE + '/r/' + share);
   await sleep(2200);

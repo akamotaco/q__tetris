@@ -491,6 +491,27 @@ function periodList(board) {
   return db.prepare(`SELECT DISTINCT period FROM period_best ${board ? 'WHERE board = ?' : ''}
                      ORDER BY period DESC LIMIT ?`).all(...(board ? [board] : []), 60).map(r => r.period);
 }
+/**
+ * 기간 뷰를 두 갈래로 푼다:
+ *  · **진행 중인 기간**은 라이브로 계산한다. snapshot() 은 1시간 주기라, 스냅샬만 보면 방금 세운
+ *    기록이 "이번 주 1위"에 최대 1시간 동안 안 뜬다 (명예의 전당에서 특히 이상하다).
+ *  · **지난 기간**은 period_best 스냅샬을 쓴다. 그건 이미 확정된 이력이라 다시 계산하지 않는 게 맞다.
+ * @returns listBoard 와 같은 열 + rank/metric/taken_at
+ */
+function periodBoardAny(period, board, limit) {
+  const cur = periodKeys(now());
+  const kind = period === cur.day ? 'day' : period === cur.week ? 'week' : period === cur.month ? 'month' : null;
+  if (!kind || !board) return periodBoard(period, board, limit);
+  const time = metricOf(boardParts(board).mode) === 'time';
+  const rows = listBoard(board, { limit: 200 }).filter(function (r) {
+    return periodKeys(r.submitted_at || now())[kind] === period;
+  });
+  return rows.slice(0, Math.min(50, limit || 10)).map(function (r, i) {
+    return Object.assign({}, r, {
+      rank: i + 1, metric: time ? r.ticks : r.score, taken_at: r.submitted_at, live: true,
+    });
+  });
+}
 /** 1위 유지 시간 — 진행중/마감 모두. 밀려난 뒤에도 이력은 남는다 */
 function holdInfo(board) {
   const cur = db.prepare('SELECT rh.*, r.share, r.score, r.ticks, r.fp FROM rank_hold rh JOIN runs r ON r.id = rh.run_id WHERE rh.board = ? AND rh.until_ms IS NULL').get(board);
@@ -548,7 +569,7 @@ module.exports = {
   insertRun, finalizeRun, pendingRuns, inFlightByIp, inFlightByFp, bumpAttempt,
   rankOnBoard, topOfBoard,
   listBoard, countBoard, boards, getRunByShare, getRunByDigest, getRunById, runsByFp, totals,
-  snapshot, periodBoard, periodList, knownPeriods, periodKeys,
+  snapshot, periodBoard, periodList, periodBoardAny, knownPeriods, periodKeys,
   holdInfo, holdForRun, lineageOf, bestRankOf,
   playback, recordNote, pruneIps,
 };
