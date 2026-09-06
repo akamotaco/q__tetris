@@ -129,7 +129,9 @@ CREATE TABLE IF NOT EXISTS playbacks (
 CREATE INDEX IF NOT EXISTS ix_pb ON playbacks(run_id, at DESC);
 
 CREATE TABLE IF NOT EXISTS rate (
-  k TEXT PRIMARY KEY, n INTEGER NOT NULL, window_at INTEGER NOT NULL
+  k TEXT PRIMARY KEY, n INTEGER NOT NULL, window_at INTEGER NOT NULL,
+  n_prev INTEGER DEFAULT 0,        -- 바로 앞 창 사용량 (가중 이동 창용)
+  seen_at INTEGER                  -- 마지막 접근 시각(ms). 창 종류와 무관하게 파기 판단은 이걸로 한다
 );
 CREATE TABLE IF NOT EXISTS bans (
   k TEXT PRIMARY KEY, reason TEXT, at INTEGER NOT NULL
@@ -162,6 +164,11 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
   add('queue_tier', 'INTEGER DEFAULT 1');
   add('attempts', 'INTEGER DEFAULT 0');
   db.exec('CREATE INDEX IF NOT EXISTS ix_status ON runs(status, id)');
+  /* rate 도 같은 방식으로 (구버전 DB 에는 컬럼이 없다) */
+  const gc = new Set(db.prepare('PRAGMA table_info(rate)').all().map(c => c.name));
+  const gadd = (name, decl) => { if (!gc.has(name)) { console.log('[migrate] rate.' + name + ' 추가'); db.exec('ALTER TABLE rate ADD COLUMN ' + decl); } };
+  gadd('n_prev', 'INTEGER DEFAULT 0');
+  gadd('seen_at', 'INTEGER');
 })();
 
 /* ================= 유틸 ================= */
@@ -202,29 +209,46 @@ function isBanned(key) { return !!db.prepare('SELECT 1 FROM bans WHERE k = ?').g
 function ban(key, reason) {
   db.prepare('INSERT OR REPLACE INTO bans(k, reason, at) VALUES (?,?,?)').run(key, reason || 'auto', now());
 }
+/**
+ * 레이트리�트 슬롯을 하나 쓴다.
+ *
+ * **가중 이동 창**으로 센다: `쓰는 중인 창 + 바로 앞 창 × (지금 창이 아직 안 지난 부분)`.
+ * 그냥 창을 나눠 카운터를 리셋하면(예전 방식) 경계에서 카운터가 0 으로 돌아가서,
+ * 59.9초에 한도를 채우고 0.1초에 다시 채우는 걸로 **2배**를 쓸 수 있었다 (재현 확인됨).
+ * 경계에서 갑자기 한도가 열리는 일도, 테스트가 우연히 경계를 넘어선 일도 없어진다.
+ */
 function takeSlot(key, limit, windowMs) {
-  const w = Math.floor(now() / windowMs);
-  const st = db.prepare('SELECT n, window_at FROM rate WHERE k = ?');
-  const row = st.get(key);
-  if (!row) { db.prepare('INSERT INTO rate(k, n, window_at) VALUES (?,1,?)').run(key, w); return true; }
-  if (row.window_at !== w) {
-    db.prepare('UPDATE rate SET n = 1, window_at = ? WHERE k = ?').run(w, key);
-    return true;
+  const t = now();
+  const w = Math.floor(t / windowMs);
+  const frac = (t - w * windowMs) / windowMs;              // 지금 창이 얼마나 진행됐나 (0~1)
+  const row = db.prepare('SELECT n, n_prev, window_at FROM rate WHERE k = ?').get(key);
+  let n = 0, prev = 0, wa = w;
+  if (row) {
+    wa = row.window_at; n = row.n || 0; prev = row.n_prev || 0;
+    if (wa !== w) { prev = (w - wa === 1) ? n : 0; n = 0; wa = w; }   // 두 창 이상 비면 앞 창도 소멸
   }
-  if (row.n >= limit) return false;
-  db.prepare('UPDATE rate SET n = n + 1 WHERE k = ?').run(key);
+  const eff = prev * (1 - frac) + n;
+  const save = db.prepare('INSERT INTO rate(k, n, window_at, n_prev, seen_at) VALUES (?,?,?,?,?) ON CONFLICT(k) DO UPDATE SET n = excluded.n, window_at = excluded.window_at, n_prev = excluded.n_prev, seen_at = excluded.seen_at');
+  if (eff >= limit) { save.run(key, n, wa, prev, t); return false; }
+  n += 1;
+  save.run(key, n, wa, prev, t);
   return true;
 }
-/** 세는 일만 하는 슬롯 (기각 횟수 누적 → 임계 초과 시 차단 판단 재료) */
+/** 세는 일만 하는 슬롯 (기각 횟수 누적 → 임계 초과 시 차단 판단 재료). 가중 값이라 소수일 수 있다. */
 function countUp(key, windowMs) {
-  const w = Math.floor(now() / windowMs);
-  const row = db.prepare('SELECT n, window_at FROM rate WHERE k = ?').get(key);
-  if (!row || row.window_at !== w) {
-    db.prepare('INSERT INTO rate(k, n, window_at) VALUES (?,1,?) ON CONFLICT(k) DO UPDATE SET n = 1, window_at = excluded.window_at').run(key, w);
-    return 1;
+  const t = now();
+  const w = Math.floor(t / windowMs);
+  const frac = (t - w * windowMs) / windowMs;
+  const row = db.prepare('SELECT n, n_prev, window_at FROM rate WHERE k = ?').get(key);
+  let n = 0, prev = 0, wa = w;
+  if (row) {
+    wa = row.window_at; n = row.n || 0; prev = row.n_prev || 0;
+    if (wa !== w) { prev = (w - wa === 1) ? n : 0; n = 0; wa = w; }
   }
-  db.prepare('UPDATE rate SET n = n + 1 WHERE k = ?').run(key);
-  return row.n + 1;
+  n += 1;
+  db.prepare('INSERT INTO rate(k, n, window_at, n_prev, seen_at) VALUES (?,?,?,?,?) ON CONFLICT(k) DO UPDATE SET n = excluded.n, window_at = excluded.window_at, n_prev = excluded.n_prev, seen_at = excluded.seen_at')
+    .run(key, n, wa, prev, t);
+  return prev * (1 - frac) + n;
 }
 
 /* ================= 토큰(시드) 발급/소진 ================= */
@@ -556,7 +580,10 @@ function recordNote(runId, status) {   // 숨김도 삭제 없음
 function pruneIps(days) {              // PII만 파기, 기록은 남는다
   const r = db.prepare('UPDATE runs SET ip_hash = NULL, ip_hint = NULL WHERE submitted_at < ?')
     .run(now() - (days || CFG.LIMITS.ipRetentionDays) * 864e5);
-  db.prepare('DELETE FROM rate WHERE window_at < ?').run(Math.floor(now() / 6e4) - 60 * 24 * 7);
+  /* 파기는 **마지막 접근 시각** 기준이어야 한다. window_at 은 창 크기마다 눈금 단위가 다르다
+     (1분 창 = ms/6e4, 1시간 창 = ms/36e5 → 값이 60배 차이). 그래서 분 단위로 자르면
+     시간 창 레코드가 매번 통째로 사라져 시간당 한도가 실질적으로 무력화되었다 (10분마다 도는 파기에서 재현됨). */
+  db.prepare('DELETE FROM rate WHERE COALESCE(seen_at, 0) < ?').run(now() - 3 * 36e5);
   return r.changes;
 }
 

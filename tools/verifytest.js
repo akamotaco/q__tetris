@@ -23,9 +23,24 @@ const { server } = require('../server/server.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let pass = 0, fail = 0;
+/* 실패하면 그 순간의 서버 상태를 같은 로그에 남긴다.
+   "한 번 걸렸는데 무슨 항목인지 모른다" 가 반복되지 않게 하기 위한 장치 — 재현이 어려운 플레이크는 이게 전부다. */
+function dumpFailure(name) {
+  try {
+    const Q = require('../server/queue.js');
+    const D = require('../server/db.js');
+    const info = Q.queue ? Q.queue.info() : {};
+    const rows = D.db.prepare('SELECT status, COUNT(*) n FROM runs GROUP BY status').all();
+    console.log('      ┌ 실패 컨텍스트 @ ' + name);
+    console.log('      · 큐   :', JSON.stringify({ workers: info.workers, busy: info.busy, waiting: info.waiting, depth: info.depth, done: info.done, rejected: info.rejected, failed: info.failed }));
+    console.log('      · 행   :', JSON.stringify(rows));
+    console.log('      · 시각 :', new Date().toISOString(), '· 분 경계까지', (60000 - (Date.now() % 60000)) + 'ms', '· 시간 경계까지', (3600000 - (Date.now() % 3600000)) + 'ms');
+    console.log('      └─');
+  } catch (e) { console.log('      (실패 컨텍스트 수집 불가: ' + e.message + ')'); }
+}
 function ok(name, cond, extra) {
   if (cond) { pass++; console.log('  \x1b[32m✓\x1b[0m ' + name); }
-  else { fail++; console.log('  \x1b[31m✗\x1b[0m ' + name + (extra !== undefined ? '  → ' + JSON.stringify(extra) : '')); }
+  else { fail++; console.log('  \x1b[31m✗\x1b[0m ' + name + (extra !== undefined ? '  → ' + JSON.stringify(extra) : '')); dumpFailure(name); }
 }
 const group = (t) => console.log('\n[' + t + ']');
 
@@ -274,6 +289,32 @@ async function playAndSubmit(me, opt) {
   ok('위조 반복 → IP 차단', DB.isBanned(DB.ipToHash(spamIP)), rejectedCount);
   const afterBan = await api('POST', '/api/session', { mode: 'marathon' }, spamIP);
   ok('차단된 IP 세션 발급 거부', afterBan.code === 403, afterBan.json);
+
+  /* ---- 한도 계산 자체의 구멍 (경계 버스트 / 파기가 시간 창을 지우는 문제) ----
+     이 둘은 HTTP 경로가 아니라 DB 함수를 직접 쳐서 **결정적으로** 확인한다.
+     창을 1초로 줄이면 60초를 기다리지 않고도 경계를 정확히 넘길 수 있다. */
+  const W = 1000, L = 6;
+  const tillBoundary = async function (lead) {
+    for (let i = 0; i < 400 && (Date.now() % W) < W - lead; i++) await sleep(5);
+  };
+  await tillBoundary(25);                                   // 창 끝 직전에 맞춰서 시작
+  let first = 0;
+  for (let i = 0; i < L; i++) if (DB.takeSlot('burst:key', L, W)) first++;
+  await sleep(25);                                          // 경계를 넘긴다
+  let second = 0;
+  for (let i = 0; i < L; i++) if (DB.takeSlot('burst:key', L, W)) second++;
+  console.log('    → 경계 전 ' + first + '건 사용 / 경계 직후 6건 중 허용 ' + second + '건');
+  ok('경계를 넘으면 한도가 즉시 리셋되지 않는다 (가중 이동 창)', second <= 2, first + '/' + second);
+  let third = 0;
+  await sleep(W);                                           // 충분한 시간 뒤에는 회복되어야 한다
+  for (let i = 0; i < L; i++) if (DB.takeSlot('burst:key', L, W)) third++;
+  ok('창이 충분히 지나면 한도는 회복된다', third >= 4, third);
+
+  const hk = 'subh:prune-proof';
+  let used = 0; for (let i = 0; i < 5; i++) if (DB.takeSlot(hk, 30, 36e5)) used++;
+  DB.pruneIps();                                            // 10분마다 도는 파기
+  let rest = 0; for (let i = 0; i < 40; i++) if (DB.takeSlot(hk, 30, 36e5)) rest++;
+  ok('파기(정리)가 1시간 창 카운터를 지우지 않는다', used === 5 && rest === 25, used + '/' + rest);
 
   group('플래그(초인적 플레이)');
   const bot = await playAndSubmit(rival, { preset: 'bot', ip: '211.1.1.20' });
