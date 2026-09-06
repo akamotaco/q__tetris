@@ -146,6 +146,17 @@ async function playAndSubmit(me, opt) {
   ok('index.html 의 에셋 ' + assets.length + '개가 모두 200 + 올바른 종류로 서빙된다', assets.length >= 8 && bad.length === 0, bad.join(' | '));
   const css = await (await fetch(base + '/ui.css')).text();
   ok('ui.css 가 실제로 내용을 싣는다 (비어 있으면 스타일만 없는 페이지가 된다)', /@font-face/.test(css) && /\.wb-row/.test(css) && /NeonNum/.test(css), css.length + '바이트');
+  /* 재검증(304)가 가능해야 "새 HTML + 옛 JS" 사고가 안 난다. index.html 은 no-store 라서
+     그 섞임이 항상 가능하다 — JS 쪽이 반드시 물어볼 수 있어야 한다. */
+  const jsRes = await fetch(base + '/client.js');
+  const etag = jsRes.headers.get('etag');
+  await jsRes.text();
+  ok('JS 는 ETag/Last-Modified 로 재검증을 받을 수 있다', !!etag && !!jsRes.headers.get('last-modified'), 'ETag=' + etag);
+  const reval = await fetch(base + '/client.js', { headers: { 'If-None-Match': String(etag) } });
+  const revalBody = await reval.text();
+  ok('같은 ETag 로 물으면 304 + 본문 없음', reval.status === 304 && revalBody.length === 0, reval.status + ' / 본문 ' + revalBody.length + '바이트');
+  const reval2 = await fetch(base + '/client.js', { headers: { 'If-None-Match': 'W/"dead-beef"' } });
+  ok('다른 ETag 를 들이밀면 새 본문을 준다(캐시가 틀린 버전을 못 받게)', reval2.status === 200 && (await reval2.text()).length > 1000, reval2.status);
 
   group('신원 표기');
   ok('지문 형식 + 체크섬', ID.validFp(hero.fp), hero.fp);

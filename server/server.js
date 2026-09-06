@@ -507,13 +507,23 @@ async function handleApi(req, res, u) {
 }
 
 /* ================= 라우터 ================= */
-function serveStatic(res, rel, type) {
+function serveStatic(req, res, rel, type) {
   const p = path.join(CFG.ROOT, rel);
   if (!p.startsWith(CFG.ROOT) || !fs.existsSync(p) || !fs.statSync(p).isFile()) return send(res, 404, 'not found', { 'Content-Type': 'text/plain; charset=utf-8' });
-  send(res, 200, fs.readFileSync(p), {
-    'Content-Type': type,
-    'Cache-Control': rel.endsWith('.html') ? 'no-store' : 'public, max-age=3600',
-  });
+  const st = fs.statSync(p);
+  /* 왜 ETag 가 필수인가: index.html 은 no-store 라서 새 버전과 바로 바뀘는데 JS 는 1시간 캐시면
+     "새 HTML + 옛 client.js" 가 섞인다. 새 버튼은 HTML 에 있으니 화면에 뜨고, 옛 JS 에는 클릭
+     코드가 없으니 **눌러도 아무 일이 일어나지 않는다**(모바일에서 실제로 겪은 증상).
+     max-age 는 두고 재검증을 붙이면 틀린 버전은 절대 안 쓰이고 트래픽은 304 한 통으로 싸다. */
+  const tag = 'W/"' + st.size.toString(16) + '-' + Math.round(st.mtimeMs).toString(16) + '"';
+  const headers = {
+    'Cache-Control': 'public, max-age=3600',
+    ETag: tag,
+    'Last-Modified': new Date(st.mtimeMs).toUTCString(),
+  };
+  if (req && req.headers && req.headers['if-none-match'] === tag) return send(res, 304, '', headers);
+  headers['Content-Type'] = type;
+  send(res, 200, fs.readFileSync(p), headers);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -525,7 +535,7 @@ const server = http.createServer(async (req, res) => {
     if (STATIC[p]) {
       const [rel, type] = STATIC[p];
       if (rel === 'index.html') return serveIndex(req, res, null);
-      return serveStatic(res, rel, type);
+      return serveStatic(req, res, rel, type);
     }
     const m = /^\/r\/([0-9a-z]{17})$/.exec(p);            // 공유 링크
     if (m) {
