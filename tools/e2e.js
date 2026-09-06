@@ -224,6 +224,10 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   ok('packed 리플레이 생성', /^NT2:/.test(play.packed || ''), play.packed);
   const share = (play.shareUrl || '').split('/r/')[1];
   ok('공유 키 발급', /^[0-9a-f]{16}[0-9a-z]$/.test(share || ''), play.shareUrl);
+  /* 링크 자체를 파서로 검사한다: origin+포트 이중 결합(http://h:8787:8787/…) 같은 실수는
+     텍스트 검색으로는 안 걸리고 "복사했는데 못 연다" 로만 나타난다. */
+  const u = new URL(play.shareUrl);
+  ok('복사되는 링크의 origin 이 페이지와 같다(포트 중복 없음)', u.origin === BASE && u.pathname === '/r/' + share, play.shareUrl + ' vs origin ' + u.origin);
   /* 링크만 보여주고 복사 수단이 없는 화면은 모바일에서 사실상 "링크를 못 얻은" 화면이다. */
   ok('복사 버튼이 DOM 에 존재한다', play.copyBtn === true, JSON.stringify(play).slice(0, 120));
   ok('복사 버튼을 누르면 상태를 말한다(됨/실패 둘 다 답이 있다)', /복사/i.test(String(play.copyLabel || '')), play.copyLabel);

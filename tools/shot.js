@@ -105,7 +105,7 @@ async function seed() {
       window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',bubbles:true})); await new Promise(r=>setTimeout(r,120)); }
     return 1; })()`);
   await sleep(400);
-  /* 제거 시점이 중요한다: 이 코드를 페이지 활성화 직후에 뒈면 game.js 가 클래스를 붙이기 **전에**
+  /* 제거 시점이 중요한다: 이 코드를 페이지 활성화 직후에 하면 game.js 가 클래스를 붙이기 **전에**
      실행되어 아무 일도 일어나지 않는다(그래도 사진에는 패드가 남아 있었다). 촬영 직전에 내린다. */
   await ev(`(function(){ document.body.classList.remove('touch-mode'); return 1; })()`);
   const padState = await ev(`JSON.stringify({ cls: document.body.className, disp: getComputedStyle(document.getElementById('touch')).display, coarse: matchMedia('(pointer: coarse)').matches })`);
@@ -119,6 +119,34 @@ async function seed() {
   await ev(`(function(){ document.body.classList.add('touch-mode'); return 1; })()`);   /* 손가락 기기 대표 */
   await sleep(1200);
   await shot(path.join(DOCS, 'preview-mobile.png'));
+
+  /* 제출 → 공유 링크 화면(모바일 시트). */
+  await ev(`(async function(){
+    const D = window.TetrisDebug; const sleep = ms => new Promise(r=>setTimeout(r,ms));
+    /* 보드를 직접 칠해서 끝내면 안 된다: 그 판은 입력 스트림에 없는 사건이라 서버 재시뮬이
+       mismatch:lines,ticks,hash 로 **정직하게 기각**한다(그래픽을 그렇게 만들면 기각 화면이 찍힌다).
+       실제로 지게 만들어야 검증 통과 화면이 나온다. */
+    if (D.G.state === 'ready' || D.G.state === 'over') D.start();
+    for (let i=0;i<160 && D.G.state!=='over';i++) {
+      window.dispatchEvent(new KeyboardEvent('keydown',{key:i%3===0?'ArrowLeft':(i%3===1?'ArrowRight':'ArrowUp'),bubbles:true}));
+      await sleep(30);
+      window.dispatchEvent(new KeyboardEvent('keyup',{key:i%3===0?'ArrowLeft':(i%3===1?'ArrowRight':'ArrowUp'),bubbles:true}));
+      window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true}));
+      await sleep(40);
+      window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',bubbles:true}));
+      await sleep(40);
+    }
+    let go = null;
+    for (let i=0;i<80 && !go;i++) { await sleep(150); go = document.getElementById('subGo'); }
+    const nm = document.getElementById('subName'); if (nm) { nm.value = '별똥별'; }
+    if (go) go.click();
+    for (let i=0;i<240;i++) { await sleep(150);
+      const done = document.querySelector('#subOut .res:not(.queueing)');
+      if (done && !document.querySelector('#subOut .queueing')) break; }
+    return JSON.stringify({ found: !!go, share: !!document.querySelector('#subOut .share'), url: (document.getElementById('shareUrl')||{}).value || null });
+  })()`, true).then(s => console.log(' 공유 화면:', s));
+  await sleep(700);
+  await shot(path.join(DOCS, 'preview-share.png'));
 
   b.kill(); srv.server.close();
   await sleep(200);

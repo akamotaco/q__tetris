@@ -24,8 +24,14 @@
 node server/server.js        # → http://localhost:8787   (제출·월드 보드·공유 활성화)
 ```
 
-![preview](docs/preview.png)
-![mobile](docs/preview-mobile.png)
+<img src="docs/preview.png" alt="데스크톱 화면" width="100%">
+
+<table>
+<tr>
+<td align="center" width="50%"><img src="docs/preview-mobile.png" width="250" alt="모바일 플레이 화면"><br><sub><b>모바일</b> — 보드 중심, 홀드·넥스트는 옆 레일, 터치 패드 2단</sub></td>
+<td align="center" width="50%"><img src="docs/preview-share.png" width="250" alt="기록 제출과 공유 링크 화면"><br><sub><b>제출 결과</b> — 서버 재시뮬 검증 통과와 공유 링크(행마다 복사)</sub></td>
+</tr>
+</table>
 
 ## 조작
 

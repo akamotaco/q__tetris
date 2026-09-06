@@ -394,7 +394,9 @@
         (res.mismatch ? ' <code>' + esc(res.mismatch.join(',')) + '</code>' : '') + '</div>';
       return;
     }
-    const url = location.origin + (location.port ? ':' + location.port : '') + '/r/' + res.share;
+    /* location.origin 에는 이미 포트가 들어 있다(8787 처럼 기본이 아닌 포트에서 두 번 붙으면
+       http://host:8787:8787/r/… 가 되어 링크가 깨진다 — 포트 없는 호스트에서만 멀쩡해서 오래 살아남았다). */
+    const url = location.origin + '/r/' + res.share;
     if (res.pending) {
       out.innerHTML = '<div class="res warn">' + esc(L.t('submit.stillQueued')) + ' <a href="/r/' + esc(res.share) + '">' + esc(L.t('replay.watch')) + '</a></div>';
       return;
@@ -436,6 +438,11 @@
       const tip = $('shareTip'); if (tip && !done) tip.classList.add('on');
       setTimeout(function () { cp.textContent = L.t('submit.copy'); }, 1600);
     });
+    /* 결과가 나왔으면 제출 버튼 줄을 내린다. "서버가 다시 돌려보는 중…" 이 검증이 끝난 뒤에도
+       걸려 있으면 상태가 거짓으로 보인다(스크린샷에서 발견). 닫기는 시트 머리말의 닫기가 있다. */
+    const sBox = $('submitBox');
+    const actRow = sBox ? sBox.querySelector(':scope > .sb-act') : null;
+    if (actRow && res.share) actRow.style.display = 'none';
     const su = $('shareUrl');
     if (su) su.addEventListener('click', function () { su.select(); });
     const wb = $('watchBtn');
@@ -742,7 +749,7 @@
     const all = mineServer.filter(function (r) { if (!r.share || seen[r.share]) return false; seen[r.share] = 1; return true; })
       .concat(rows.filter(function (r) { if (r.share && seen[r.share]) return false; if (r.share) seen[r.share] = 1; return true; }));
     if (!all.length) { list.innerHTML = '<div class="muted">' + esc(L.t('mine.empty')) + '</div>'; return; }
-    const hrefOf = function (share) { return location.origin + (location.port ? ':' + location.port : '') + '/r/' + share; };
+    const hrefOf = function (share) { return location.origin + '/r/' + share; };   /* origin 이 포트를 포함한다 — 위에 같은 실수 방지 */
     list.innerHTML = all.slice(0, 10).map(function (r) {
       const share = r.share || '';
       const at = r.at || r.submittedAt;
