@@ -507,6 +507,19 @@ async function waitForTarget() {
   ok2(paneFix.before.offTop >= paneFix.before.vh - 1, '시트는 기본 상태에서 화면 밖에 있다', paneFix.before.offTop + ' vs vh ' + paneFix.before.vh);
   ok2(paneFix.open.bodyOpen === true && paneFix.open.wcVisible === true, '≡ 를 누르면 월드 보드가 화면 안으로 올라온다', JSON.stringify(paneFix.open));
   ok2(paneFix.closedAfterScrim === true, '스크림을 누르면 시트가 닫힌다', String(paneFix.closedAfterScrim));
+
+  /* 터치 패드 2단: 줄 개수와 타깃 크기까지 본다 — "작게 한 줄" 로 되돌아가기 가장 쉬운 부분이다. */
+  const pad = JSON.parse(await evalJS(`(function(){
+    const t=document.getElementById('touch'); const bs=[...t.querySelectorAll('button')];
+    const rows=new Set(bs.map(b=>Math.round(b.getBoundingClientRect().top)));
+    return JSON.stringify({ rows: rows.size, n: bs.length,
+      minW: Math.min.apply(null, bs.map(b=>Math.round(b.getBoundingClientRect().width))),
+      minH: Math.min.apply(null, bs.map(b=>Math.round(b.getBoundingClientRect().height))),
+      disp: getComputedStyle(t).display });
+  })()`));
+  ok2(pad.disp === 'grid', '터치 패드는 그리드 배치다', pad.disp);
+  ok2(pad.rows === 2, '터치 패드가 실제로 두 줄이다', pad.rows + '줄 / 버튼 ' + pad.n);
+  ok2(pad.minH >= 56 && pad.minW >= 60, '엄지 타깃 크기 기준(≥56×60)', pad.minW + '×' + pad.minH);
   await cmd('Emulation.clearDeviceMetricsOverride');
 
   console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');

@@ -872,6 +872,7 @@
       el.textContent = b.label;
       if (b.small) el.classList.add('txt');
       el.setAttribute('aria-label', b.act);
+      el.dataset.act = b.act;   /* CSS 가 버튼 순서가 아니라 역할로 배치에 참여하게 (2단 패드) */
       const stop = function (e) { e.preventDefault(); if (b.hold) releaseKey(b.act); };
       const begin = function (e) {
         e.preventDefault();

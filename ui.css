@@ -302,6 +302,13 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   .pane-scrim { position: fixed; inset: 0; z-index: 44; background: rgba(2, 4, 10, 0.62); }
   body:not(.pane-open) .pane-scrim { display: none; }
   @media (prefers-reduced-motion: reduce) { .pane { transition: none; } }
+  /* 터치 패드 2단 — 한 줄 7개(52px)는 엄지 타깃이 좁다.
+     역할로 배치하기 위해 data-act 를 쓴다(버튼 순서가 바뀌어도 레이아웃이 안 무너진다).
+     예산: 30~40%를 주면 보드 칸이 18~19px로 되돌아간다(앞서 계산한 그대로) — 그래서 여기서는 ~16%. */
+  body.touch-mode .touch { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; }
+  .touch button { width: auto; height: 62px; }
+  .touch [data-act="left"], .touch [data-act="right"], .touch [data-act="down"] { grid-column: span 4; }
+  .touch [data-act="ccw"], .touch [data-act="cw"], .touch [data-act="hold"], .touch [data-act="hard"] { grid-column: span 3; }
 }
 
 @media (max-width: 520px) {
