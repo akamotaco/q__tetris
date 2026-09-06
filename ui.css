@@ -134,7 +134,9 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 .wb-row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-row .who em { font-style: normal; color: var(--dim); font-size: 9px; font-family: var(--mono); margin-left: 4px; }
 .wb-row b { font-size: 12px; }
-.wb-row .sub { grid-column: 2 / -1; font-size: 9px; color: var(--dim); }
+.wb-row .sub { grid-column: 2 / 3; font-size: 9px; color: var(--dim); }
+/* 행 안의 링크 복사 버튼 — 행 전체 탭(열기)과 다른 일이라 stopPropagation 으로 갈라 쓴다. */
+.wb-row .row-copy { grid-column: 3 / 4; grid-row: 2; justify-self: end; padding: 3px 8px; font-size: 9px; white-space: nowrap; }
 .wb-row .flag { color: #ff9f43; }
 .muted { color: var(--dim); font-size: 11px; }
 

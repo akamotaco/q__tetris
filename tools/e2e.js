@@ -342,7 +342,25 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   await navigate(BASE + '/');
   await sleep(1600);
   const after = await ev(`document.getElementById('meChip').textContent`);
-  ok('지문 유지 (IndexedDB 개인키)', before && after && before === after, { before, after });
+  ok('지문 유지 (IndexedDB 개인키)', before && after && after === before, { before, after });
+
+  /* "내 기록" 을 눌러도 반응이 없다 → 행에 링크 복사 버튼이 있어야 한다(실기기反馈).
+     새로고침 후에도 지문이 같으니 서버에서 같은 기기의 기록을 가져와야 한다. */
+  const mine = JSON.parse(await ev(`(async function(){
+    const sleep = ms => new Promise(r=>setTimeout(r,ms));
+    if (!window.TetrisClient || !window.TetrisClient.loadMine) return JSON.stringify({err:'loadMine 없음'});
+    await window.TetrisClient.loadMine(); await sleep(400);
+    const row = document.querySelector('#mineList .wb-row');
+    const btn = document.querySelector('#mineList .row-copy');
+    let label = null;
+    if (btn) { btn.click(); await sleep(220); label = btn.textContent; }
+    return JSON.stringify({ rows: document.querySelectorAll('#mineList .wb-row').length,
+      share: row ? (row.dataset.share || '') : null, hasBtn: !!btn, url: btn ? btn.dataset.url : null, label: label });
+  })()`, true));
+  ok('내 기록에 서버에서 가져온 행이 있다', mine.rows > 0 && /^[0-9a-f]{16}[0-9a-z]$/.test(mine.share || ''), mine);
+  ok('그 행에 링크 복사 버튼이 있다', mine.hasBtn === true, mine);
+  ok('복사 버튼의 대상이 진짜 /r/ 링크다', (mine.url || '').indexOf('/r/' + mine.share) > 0, mine.url);
+  ok('복사하면 버튼이 상태를 말한다', /복사/.test(String(mine.label || '')), mine.label);
 
   ok('런타임 에러 없음', errors.length === 0, errors.slice(0, 4));
 

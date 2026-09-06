@@ -135,9 +135,9 @@
       <!-- 모바일에서는 시트가 이 세 카드를 아래에서 불러낸다. 그래서 "내 기록"도 이 안쪽에 있다
            (한때 모바일에서 display:none 으로 사라져 어딘지도 모르게 되어 있었다). -->
       <section class="card" id="mineCard">
-        <div class="card-head"><span data-i18n="board.me">내 기록</span><span class="hint">this device</span></div>
+        <div class="card-head"><span data-i18n="board.me">내 기록</span><span class="hint" data-i18n="mine.hint">this device</span></div>
         <div class="wb-list mine" id="mineList"></div>
-        <button class="btn tiny ghost" id="mineClear" data-i18n="mine.clear">목록 지우기</button>
+        <button class="btn tiny ghost" id="mineClear" data-i18n="mine.clear" data-i18n-title="mine.clearNote" title="이 기기 목록에서만 지웁니다">목록 지우기</button>
       </section>
       <section class="card" id="worldCard">
         <div class="card-head"><span data-i18n="board.title">월드 레코드</span><span class="hint" id="wbHold"></span></div>

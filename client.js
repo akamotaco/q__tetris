@@ -431,13 +431,9 @@
     if (shareEl && shareEl.scrollIntoView) { try { shareEl.scrollIntoView({ block: 'center' }); } catch (e) { shareEl.scrollIntoView(); } }
     const cp = $('copyBtn');
     if (cp) cp.addEventListener('click', async function () {
-      let ok = false;
-      try { ok = !!(navigator.clipboard && await navigator.clipboard.writeText(url)); } catch (e) { }
-      if (!ok) {
-        try { const su0 = $('shareUrl'); su0.focus(); su0.select(); ok = document.execCommand('copy'); } catch (e) { }
-      }
-      cp.textContent = L.t(ok ? 'submit.copied' : 'submit.copyFail');
-      const tip = $('shareTip'); if (tip && !ok) tip.classList.add('on');
+      const done = await copyText(url);
+      cp.textContent = L.t(done ? 'submit.copied' : 'submit.copyFail');
+      const tip = $('shareTip'); if (tip && !done) tip.classList.add('on');
       setTimeout(function () { cp.textContent = L.t('submit.copy'); }, 1600);
     });
     const su = $('shareUrl');
@@ -589,7 +585,11 @@
       });
     }
     const mb = $('mineClear');
-    if (mb) mb.addEventListener('click', function () { lsSet(STORE.mine, '[]'); renderMine(); });
+    if (mb) mb.addEventListener('click', function () {
+      /* 이 버튼은 **이 기기 목록**만 비운다. 서버 기록은 삭제하지 않는다(부록 전용 이력 원칙).
+         서버 행이 남아 있으면 "눌렀는데 그대로" 처럼 보이니 무엇을 했는지 말한다. */
+      lsSet(STORE.mine, '[]'); renderMine(); toast(L.t('mine.clearNote'));
+    });
     renderMine();
     CL.loadBoard();
     CL.loadHof();
@@ -714,26 +714,76 @@
     if (el && stats) el.textContent = L.t('stats.players', { n: stats.playersToday || 0, m: stats.netsToday || 0 });
   };
 
-  /* ================= 내 기록 (이 브라우저에만 저장) ================= */
+  /* 링크 복사는 3중 견적: clipboard API → execCommand → 안 되면 손가락 길게누름 안내.
+     (권한·비보안 컨텍스트에서 clipboard API 는 예외 대신 false 를 내고 조용히 실패한다.) */
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return true; }
+    } catch (e) { }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = !!(document.execCommand && document.execCommand('copy'));
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  /* ================= 내 기록 (이 브라우저 + 서버의 같은 지문) ================= */
+  let mineServer = [];   /* 서버가 아는 내 기록. 로컬 목록과 달리 제출된 판이라 링크가 있다. */
   function renderMine() {
     const list = $('mineList');
     if (!list) return;
     const rows = JSON.parse(lsGet(STORE.mine, '[]'));
-    if (!rows.length) { list.innerHTML = '<div class="muted">' + esc(L.t('mine.empty')) + '</div>'; return; }
-    list.innerHTML = rows.slice(0, 8).map(function (r) {
-      /* 링크가 없는 행이 두 종류다: "제출 안 함으로 둔 판"(나중에) 과 "서버 자체가 없던 판"(미제출).
+    /* 서버 행이 먼저다(링크가 실재하는 쪽이 정답). 같은 share 를 두 번 보여주지 않는다. */
+    const seen = {};
+    const all = mineServer.filter(function (r) { if (!r.share || seen[r.share]) return false; seen[r.share] = 1; return true; })
+      .concat(rows.filter(function (r) { if (r.share && seen[r.share]) return false; if (r.share) seen[r.share] = 1; return true; }));
+    if (!all.length) { list.innerHTML = '<div class="muted">' + esc(L.t('mine.empty')) + '</div>'; return; }
+    const hrefOf = function (share) { return location.origin + (location.port ? ':' + location.port : '') + '/r/' + share; };
+    list.innerHTML = all.slice(0, 10).map(function (r) {
+      const share = r.share || '';
+      const at = r.at || r.submittedAt;
+      /* 링크가 없는 행이 두 종류다: "제출 안 함으로 둔 판" 과 "서버 자체가 없던 판"(미제출).
          전자만 나중에 링크가 붙을 수 있으니 라벨을 구분한다. */
-      const tail = r.share ? L.t('replay.watch') : (r.localOnly ? L.t('mine.localOnly') : L.t('submit.later'));
-      return '<div class="wb-row' + (r.share ? '' : ' dim') + '" data-share="' + esc(r.share || '') + '">' +
+      const tail = share ? L.t('replay.watch') : (r.localOnly ? L.t('mine.localOnly') : L.t('submit.later'));
+      return '<div class="wb-row' + (share ? '' : ' dim') + '" data-share="' + esc(share) + '" data-nolink="' + (share ? '' : '1') + '">' +
         '<i class="rk">' + esc(r.mode === 'sprint' ? fmtTime(r.ticks) : (r.score || 0).toLocaleString()) + '</i>' +
-        '<span class="who">' + esc(L.t('mode.' + r.mode) || r.mode) + (r.level > 1 ? ' Lv' + r.level : '') + '<em>' + esc(new Date(r.at).toLocaleDateString()) + '</em></span>' +
+        '<span class="who">' + esc(L.t('mode.' + r.mode) || r.mode) + ((r.level || 1) > 1 ? ' Lv' + r.level : '') +
+        '<em>' + esc(at ? new Date(at).toLocaleDateString() : '') + '</em></span>' +
         '<b class="mono">' + r.lines + 'L</b>' +
         '<span class="sub muted">' + esc(tail) + '</span>' +
+        /* 행 전체를 눌러도 열리지만, "링크를 보내고 싶은" 경우에는 복사 버튼이 있어야 한다(실기기 피드백). */
+        (share ? '<button class="btn tiny ghost row-copy" data-url="' + esc(hrefOf(share)) + '">' + esc(L.t('mine.copy')) + '</button>' : '') +
         '</div>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('.wb-row'), function (el) {
-      if (el.dataset.share) el.addEventListener('click', function () { location.href = '/r/' + el.dataset.share; });
+      if (el.dataset.share) { el.addEventListener('click', function () { location.href = '/r/' + el.dataset.share; }); }
+      else if (el.dataset.nolink) { el.addEventListener('click', function () { toast(L.t('mine.noLink')); }); }
     });
+    Array.prototype.forEach.call(list.querySelectorAll('.row-copy'), function (b) {
+      b.addEventListener('click', async function (e) {
+        e.stopPropagation(); e.preventDefault();
+        const done = await copyText(b.dataset.url);
+        b.textContent = L.t(done ? 'submit.copied' : 'submit.copyFail');
+        if (!done) toast(L.t('submit.copyHint'));
+        setTimeout(function () { b.textContent = L.t('mine.copy'); }, 1600);
+      });
+    });
+  }
+
+  /** 서버의 같은 지문 기록을 가져와 로컬 목록과 합쳐 그린다(오프라인·무신원이면 로컬만). */
+  CL.loadMine = async function () {
+    if (!me || isFile) { renderMine(); return; }
+    const nonce = 'm' + Date.now();
+    const r = await req('POST', '/api/mine', {
+      fp: me.fp, nonce: nonce, lang: L.get(),
+      owner: { jwk: me.jwk, sig: await sign(payloadOf('NTMINE1', [nonce])) },
+    }, 12000);
+    if (!r.offline && r.status === 200 && r.json && Array.isArray(r.json.list)) mineServer = r.json.list;
+    renderMine();
   }
 
   /* ================= 부트 ================= */
@@ -746,6 +796,7 @@
     const setPane = function (open) {
       document.body.classList.toggle('pane-open', !!open);
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open && CL.loadMine) CL.loadMine();   /* 열 때 서버 목록을 새로 고친다(방금 제출한 판이 missing 되지 않게) */
     };
     btn.addEventListener('click', function () { setPane(!document.body.classList.contains('pane-open')); });
     /* SCORE 옆 진입로: 시트를 **여는** 역할만 한다(닫기는 스크림/≡ ). */
@@ -772,6 +823,7 @@
     applyI18n();
     wirePane();
     await identity();
+    CL.loadMine();
     if (!subtle || isFile) {
       const chip = $('meChip');
       if (chip) chip.innerHTML = '<b>' + esc(L.t('submit.offline')) + '</b>';
