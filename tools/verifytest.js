@@ -18,6 +18,7 @@ const ID = require('../identity.js');
 const AI = require('./ai.js');
 const V = require('../server/verify.js');
 const DB = require('../server/db.js');
+const SRVCFG = require('../server/config.js');
 const { server } = require('../server/server.js');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -322,6 +323,17 @@ async function playAndSubmit(me, opt) {
   ok('위조 반복 → IP 차단', DB.isBanned(DB.ipToHash(spamIP)), rejectedCount);
   const afterBan = await api('POST', '/api/session', { mode: 'marathon' }, spamIP);
   ok('차단된 IP 세션 발급 거부', afterBan.code === 403, afterBan.json);
+
+  /* 세션(시드) 한도에 걸리면 그 판은 **시드 없이** 시작되고, 그래서 제출만 불가가 된다.
+     모바일에서 "초록불인데 제출 불가" 로 보이는 정확한 경로다 — 배선을 값이 아니라 동작으로 확인한다.
+     (레이트는 마스킹 IP 당 슬롯이고, 한 IP 안에 가족·CGNAT 여러 대가 함께 들어간다) */
+  const sessIP = '198.51.100.77';
+  const tokKey = 'tok:' + DB.ipToHash(sessIP);
+  for (let i = 0; i < SRVCFG.LIMITS.tokenPerHour; i++) DB.takeSlot(tokKey, SRVCFG.LIMITS.tokenPerHour, 36e5);
+  const over = await api('POST', '/api/session', { mode: 'marathon' }, sessIP);
+  ok('세션 한도를 채우면 /api/session 은 429 → 그 판은 시드 없이 시작(제출만 불가)', over.code === 429, over.code + ' / ' + JSON.stringify(over.json));
+  const under = await api('POST', '/api/session', { mode: 'marathon' }, '198.51.100.78');
+  ok('한도 전의 다른 IP 는 정상 발급', under.code === 200 && !!under.json.seed, under.code);
 
   /* ---- 한도 계산 자체의 구멍 (경계 버스트 / 파기가 시간 창을 지우는 문제) ----
      이 둘은 HTTP 경로가 아니라 DB 함수를 직접 쳐서 **결정적으로** 확인한다.

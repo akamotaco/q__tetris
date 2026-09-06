@@ -132,17 +132,22 @@
     }
   }
 
-  /** 판 시작 전 1회용 시드 발급. 실패하면 null → 오프라인 플레이(제출만 불가) */
+  /** 판 시작 전 1회용 시드 발급. 실패하면 null → 오프라인 플레이(제출만 불가).
+   *  실패 **이유를 남긴다**: 이유를 뭉개면 429(요청 폭주)로 시작한 판이 "오프라인" 으로 보여,
+   *  초록불과 모순되는 화면이 된다. */
+  CL.sessionFail = null;      // 'net' | 'rate' | 'banned' | null
   CL.session = async function (o) {
     const r = await req('POST', '/api/session', {
       mode: o.mode, level: o.level, g20: o.g20, fp: me ? me.fp : null, lang: L.get(),
     });
     if (r.offline || r.status !== 200) {
+      CL.sessionFail = r.status === 429 ? 'rate' : r.status === 403 ? 'banned' : 'net';
       if (r.status === 403) toast(L.t('err.banned'));
       else if (r.status === 429) toast(L.t('err.rate'));
       setNet(false);
       return null;
     }
+    CL.sessionFail = null;
     setNet(true);
     return r.json;
   };
@@ -324,6 +329,13 @@
     const box = $('submitBox');
     if (!box) return;
     const offline = !info.session;
+    /* 오프라인에도 이유가 셋이다. 하나("오프라인")로 뭉개면 서버가 살아있는 화면에서 유저가
+       자기 눈을 의심하게 된다: 세션(시드)은 판을 **시작할 때** 발급되므로, 그때 429/네트워크
+       실패가 났으면 이 판은 제출 불가지만 **지금** 연결은 정상이다.
+       (서명 키를 못 만드는 경우는 topbar 칩이 말한다 — 이 상자는file:// 에서만 열린다) */
+    const why = isFile ? 'submit.offline'
+      : CL.sessionFail === 'rate' ? 'submit.offlineRate'
+        : CL.sessionFail === 'banned' ? 'err.banned' : 'submit.offlineNet';
     const savedName = lsGet(STORE.name, '');
     const reveal = lsGet(STORE.reveal, '1') !== '0';
     box.classList.remove('hidden', 'done');
@@ -345,7 +357,7 @@
       (offline ? '' : '<div class="sb-warn">' + esc(L.t('submit.nameWarn')) + '</div>') +
       '<div class="sb-act">' +
       (offline
-        ? '<span class="muted">' + esc(L.t('submit.offline')) + '</span>'
+        ? '<span class="muted">' + esc(L.t(why)) + '</span>'
         : '<button class="btn primary" id="subGo">' + esc(L.t('submit.go')) + '</button>') +
       '<button class="btn ghost" id="subLater">' + esc(L.t('submit.later')) + '</button>' +
       '</div>' +
@@ -832,8 +844,14 @@
     await identity();
     CL.loadMine();
     if (!subtle || isFile) {
+      /* 비보안 맥락(http 로 IP 접속)에서는 crypto.subtle 이 없어 서명 키를 만들 수 없다.
+         그 경우를 "오프라인" 이라 부르면 **초록불과 모순되는 화면**이 된다(서버는 잘 닿는다).
+         짧은 라벨은 칩에, 긴 사정은 title 에 둔다 — topbar 는 좁다. */
       const chip = $('meChip');
-      if (chip) chip.innerHTML = '<b>' + esc(L.t('submit.offline')) + '</b>';
+      if (chip) {
+        chip.innerHTML = '<b>' + esc(L.t(isFile ? 'submit.offline' : 'chip.noKey')) + '</b>';
+        chip.title = L.t(isFile ? 'submit.offline' : 'submit.noIdentity');
+      }
     }
     return { fp: me ? me.fp : null, lang: L.get() };
   };
