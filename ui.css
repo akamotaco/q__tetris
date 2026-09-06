@@ -185,6 +185,8 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   color: var(--ink); font: inherit; font-size: 12px; padding: 5px 8px; width: 150px;
 }
 .sb-act { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+/* 링크를 만드는 순간 상대에게 이름이 보인다는 경고. 조용히 넘어가면 안 되는 정보라서 색을 준다. */
+.sb-warn { margin-top: 8px; font-size: 11px; line-height: 1.55; color: var(--warn, #ffcf6a); opacity: .95; word-break: keep-all; }
 .sb-out { margin-top: 10px; display: flex; flex-direction: column; gap: 7px; }
 .res { font-size: 11px; padding: 7px 9px; border-radius: 9px; border: 1px solid var(--line); }
 .res.ok { color: #9dfac4; border-color: rgba(62, 224, 143, 0.4); background: rgba(62, 224, 143, 0.08); }

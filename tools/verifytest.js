@@ -316,19 +316,51 @@ async function playAndSubmit(me, opt) {
   let rest = 0; for (let i = 0; i < 40; i++) if (DB.takeSlot(hk, 30, 36e5)) rest++;
   ok('파기(정리)가 1시간 창 카운터를 지우지 않는다', used === 5 && rest === 25, used + '/' + rest);
 
-  group('플래그(초인적 플레이)');
+  group('휴먼 오버 지표 — 판정에 쓰지 않음을 고정');
   const bot = await playAndSubmit(rival, { preset: 'bot', ip: '211.1.1.20' });
   ok('200 발행(기각 아님)', bot.submit.code === 200, bot.submit.json);
-  ok('플래그됨', bot.submit.json.status === 'flagged' && bot.submit.json.flags.length > 0, bot.submit.json.flags);
-  console.log('    → flags: ' + bot.submit.json.flags.join(', ') + ' / PPS ' + bot.submit.json.metrics.pps.toFixed(2) +
+  /* 속도는 증거가 아니다. 세계 상위권은 CTWL·ASD·롤킹 같은 손기술과 전용 자세로 이 값들을 그냥 넘기고,
+     느리게 도는 도구는 같은 문턱을 피한다. 그래서 기계처럼 보이는 판도 통과시킨다.
+     이 검정이 깨지는 순간은 "속도로 자르자"는 유혹이 통과한 순간이다. */
+  ok('속도가 아무리 기계적이어도 상태는 verified', bot.submit.json.status === 'verified', bot.submit.json.status + '/' + JSON.stringify(bot.submit.json.flags));
+  ok('지표는 사라지지 않고 행에 남는다', (bot.submit.json.flags || []).length > 0, bot.submit.json.flags);
+  console.log('    → 관찰 지표(판정 무관): ' + bot.submit.json.flags.join(', ') + ' / PPS ' + bot.submit.json.metrics.pps.toFixed(2) +
     ' / 간격 최빈비 ' + bot.submit.json.metrics.gapModeShare.toFixed(2) + ' / 반응중앙 ' + bot.submit.json.metrics.reactMedian);
 
-  group('플래그 심각도(상위권 인간과 도구의 경계)');
+  group('⚑ 는 사람만 붙인다');
   const aceRun = await playAndSubmit(rival, { preset: 'ace', ip: '211.1.1.21' });
-  ok('엘리트급 프로필은 검증 통과(soft 지표만)', aceRun.submit.json.status === 'verified', aceRun.submit.json.status + '/' + JSON.stringify(aceRun.submit.json.flags));
-  ok('soft 지표는 기록된다', (aceRun.submit.json.softFlags || []).length >= 0 && Array.isArray(aceRun.submit.json.flags));
-  const shownOnBoard = (await api('GET', '/api/board?mode=marathon&level=1')).json.list.every(r => r.status !== 'flagged' || r.flags.length > 0);
-  ok('보드에는 hard 플래그만 ⚑', shownOnBoard);
+  ok('엘리트급 인간 프로필도 verified', aceRun.submit.json.status === 'verified', aceRun.submit.json.status + '/' + JSON.stringify(aceRun.submit.json.flags));
+  ok('자동으로는 flagged 가 하나도 생기지 않는다', (await api('GET', '/api/board?mode=marathon&level=1')).json.list.every(r => r.status !== 'flagged'));
+  const marked = DB.markReview(bot.submit.json.share, 'flagged', '검수 재현: 간격이 균일한 판');
+  ok('사람의 --flag 만 flagged 를 만든다', marked === 1 && DB.getRunByShare(bot.submit.json.share).status === 'flagged');
+  ok('붙인 사정이 행에 남는다', DB.getRunByShare(bot.submit.json.share).review_note.indexOf('균일') >= 0);
+  ok('보드는 ⚑ 을 숨기지 않고 보여준다', (await api('GET', '/api/board?mode=marathon&level=1')).json.list.some(r => r.share === bot.submit.json.share && r.status === 'flagged'));
+  DB.markReview(bot.submit.json.share, 'verified', null);
+  ok('떼면 되돌아간다(삭제 없음)', DB.getRunByShare(bot.submit.json.share).status === 'verified');
+
+  group('마이그레이션 업그레이드 경로');
+  /* fresh DB 는 CREATE TABLE 에 컬럼이 다 있어 add() 경로를 타지 않는다. 실제 배포에서 무서운 건
+     구버전 DB 를 여는 쪽인데, 바로 그 경로에서 예전엔 컬럼 이름이 'TEXT'/'INTEGER' 로 생기다
+     조용히 성공했다. 그래서 "없앴다가 다시 연다"로 업그레이드 경로를 강제로 태운다. */
+  const mig = require('child_process').execFileSync(process.execPath, ['-e', `
+    const path = require('path');
+    const dbp = path.join(process.argv[1], 'server', 'db.js');
+    const DB = require(dbp);
+    DB.db.exec('ALTER TABLE runs DROP COLUMN metrics');
+    DB.db.exec('ALTER TABLE runs DROP COLUMN rules');
+    delete require.cache[require.resolve(dbp)];
+    const DB2 = require(dbp);                       /* 마이그레이션이 ALTER 경로를 타고 재실행 */
+    const names = DB2.db.prepare('PRAGMA table_info(runs)').all().map(c => c.name);
+    console.log(JSON.stringify({
+      added: ['metrics', 'rules'].every(n => names.indexOf(n) >= 0),
+      junk: names.filter(n => n === 'TEXT' || n === 'INTEGER'),
+      inCols: DB2.RUN_COLS.has('metrics') && DB2.RUN_COLS.has('rules'),
+    }));
+  `, __dirname + '/..'], { env: Object.assign({}, process.env, { NT_DATA: require('fs').mkdtempSync(require('os').tmpdir() + '/nt-mig-') }), encoding: 'utf8' }).trim();
+  const migj = JSON.parse(mig.slice(mig.lastIndexOf('{')));
+  ok('업그레이드 시 컬럼이 **이름대로** 생긴다', migj.added === true, mig);
+  ok('RUN_COLS 도 새 컬럼을 안다 (모르면 finalizeRun 이 값을 조용히 버린다)', migj.inCols === true, mig);
+  ok('이름 없는(TEXT/INTEGER) 잔해 컬럼이 없다', migj.junk.length === 0, migj.junk.join(','));
 
   group('모드 · 순위 · 시점');
   const sp1 = await playAndSubmit(hero, { mode: 'sprint', preset: 'human', ip: '211.1.1.30' });

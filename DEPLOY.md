@@ -148,6 +148,7 @@ docker run -d -p 8787:8787 -v $PWD/data:/app/data --env-file secret.env --restar
 - 백업(핫카피): `sqlite3 data/tetris.db ".backup 'backup/tetris-$(date +%F).db'"` 를 cron으로. 순수 카피라면 `wal_checkpoint(TRUNCATE)` 후 복사.
 - 여러 노드로 띄우면 SQLite는 쓰기 경합이 생긴다(재시뮬 병렬도는 괜찮아도 등록은 직렬). 스케일 아웃이 필요해지면 **LiteFS**(Fly)나 Postgres로 옮긴다. 그때도 `engine.js`/`verify.js`는 그대로 쓴다.
 - 파기 작업(IP 해시·레이트 테이블)은 서버가 10분/1시간 주기로 자동으로 돌린다. 기록 자체는 삭제하지 않는다.
+- **마이그레이션은 구버전 DB를 열 때만 탄다** — 그래서 테스트가 항상 fresh DB 라도 조용히 망가질 수 있다. 실제로 한 번 컬럼 이름(`name`)을 빼고 타입만 붙여 `ALTER … ADD COLUMN INTEGER` 을 실행해 버렸다(SQLite 는 이름 없는 정의를 **타입을 이름으로** 받아들여 조용히 성공 → `rules`/`metrics` 가 없는 DB가 되고, `finalizeRun` 의 키 필터가 값을 **에러 없이 버림**). 지금은 ① 이름을 붙이고 ② ALTER 후 실재를 확인해 없으면 **기동 중 죽고** ③ 잔해 컬럼(TEXT/INTEGER)은 자동으로 지운다. 업그레이드 후 `[migrate]` 로그를 한 번 확인하라 — 아무 줄도 안 뜨는 것이 정상이고, 실패하면 서버가 뜨지 않는다. (회귀 고정: `tools/verifytest.js` 「마이그레이션 업그레이드 경로」)
 
 ## 6.5 큐 모니터링
 

@@ -282,6 +282,8 @@
       '</div>';
     box.innerHTML =
       idRow +
+      /* 링크를 여는 사람에게 이름이 보인다는 것을 "만들고 나서"가 아니라 "만들기 전에" 알려야 한다. */
+      (offline ? '' : '<div class="sb-warn">' + esc(L.t('submit.nameWarn')) + '</div>') +
       '<div class="sb-act">' +
       (offline
         ? '<span class="muted">' + esc(L.t('submit.offline')) + '</span>'

@@ -165,6 +165,10 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
     await sleep(700);
     const box = document.getElementById('submitBox');
     const nameEl = document.getElementById('subName');
+    /* 이름을 쓰라고만 있고 "링크를 여는 사람에게 보인다"를 안 알려주는 화면은 반쪽이다.
+       경고가 링크를 **만들기 전에** 보드 위에 떠 있는지, 클릭 전에 잡아 returns 한다. */
+    const nameWarnEl = document.querySelector('#submitBox .sb-warn');
+    const nameWarn = nameWarnEl ? nameWarnEl.textContent : '';
     if (nameEl) nameEl.value = '테스트플레이어';
     const go = document.getElementById('subGo');
     if (go) go.click();
@@ -177,6 +181,7 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
     const res = document.querySelector('#subOut .res:not(.queueing)');
     const shareInput = document.querySelector('#subOut .share input');
     return JSON.stringify({
+      nameWarn: nameWarn,
       state: D.G.state, pieces: pieces,
       score: D.G.score, lines: D.G.lines, ticks: D.G.ticks,
       over: D.G.state==='over',
@@ -190,6 +195,8 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
       packed: (window.TetrisDebug.packed()||'').slice(0,60),
     });
   })()`, true));
+  /* 링크를 만드는 사람에게 "상대에게 이름이 보인다"를 만들기 전에 알려준다. */
+  ok('이름 노출 경고가 링크 생성 전에 보인다', /이름/.test(String(play.nameWarn || '')) && String(play.nameWarn).trim().length > 10, String(play.nameWarn).slice(0, 44));
   ok('판이 실제로 진행됨', play.pieces > 3 && play.ticks > 100, play);
   ok('게임 오버', play.over);
   ok('제출 상자 노출', play.boxShown);

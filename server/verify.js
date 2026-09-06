@@ -162,14 +162,22 @@ function reaction(spawns, inputs) {
 }
 
 /**
- * 플래그 심각도. soft 는 보드에 표시하지 않고(줄임), hard 만 ⚑ 와 검수 대기열로 간다.
- * 근거: 세계 상위권은 어차피 기계처럼 규칙적이고 하드드롭 위주라서, soft 지표만으로는
- * 사람과 도구를 나눌 수 없다. 나눌 수 없는 것을 "의심"으로 표시하면 경고 피로만 만든다.
+ * 플래그 심각도 — **상태를 바꾸지 않는다**. 여기 값은 검수자가 순서대로 볼지 고르는 관찰 지표일 뿐이다.
+ *
+ * 왜 상태로 쓰지 않는가 (속도는 증거가 아니다):
+ *   세계 상위권은 CTWL·ASD·롤킹 같은 손기술과 전용 자세로 이 문턱들을 그냥 넘긴다
+ *   (9~10 PPS, 20 APM 대를 유지한다). "인간을 넘었다"를 판정 근거로 쓰면
+ *   정확히 가장 잘한 정당한 플레이어를 벌하는 모양이 되고, 반대로 사람은 느리게 돌리면
+ *   얼마든지 회피한다 — 그래서 이 지표들은 자동 판정에서 완전히 빠진다.
+ *   자동 판정은 "시뮬레이션이 같은 결과로 재구성되는가" 하나만 쓰고, ⚑ 는 사람이 붙인다
+ *   (tools/review.js --flag).
+ *   hard = "어떤 입력 장치로도 성립하기 어려운 형태" — 그래도 기각은 아니고 '먼저 볼 가치'일 뿐.
  */
 const SEVERITY = {
-  pps_high: 'soft', input_rate: 'soft', metronome: 'soft', reaction_spam: 'soft', machine_like: 'soft',
-  pps_extreme: 'hard', apm_extreme: 'hard', input_burst: 'hard', tick_stacking: 'hard',
-  reaction_superhuman: 'hard', speed_impossible: 'hard', sprint_inhuman: 'hard',
+  pps_high: 'soft', pps_extreme: 'soft', input_rate: 'soft', apm_extreme: 'soft', input_burst: 'soft',
+  tick_stacking: 'soft', metronome: 'soft', reaction_superhuman: 'soft', reaction_spam: 'soft',
+  machine_like: 'soft', sprint_inhuman: 'soft',
+  speed_impossible: 'hard',
 };
 
 /* ================= 검증 본체 ================= */
@@ -257,9 +265,10 @@ function verify(rec, ctx) {
   if (m.pps > 2.2 && m.hardShare > 0.97 && rh.modeShare > 0.55) out.flags.push('machine_like');
   if (rec.mode === 'sprint' && rec.ticks < 60 * 26) out.flags.push('sprint_inhuman');
 
-  /* 심각도 분리: soft 는 "관찰 지표"일 뿐(상위권은 정상적으로도 나온다), hard 만 검수 대상. */
+  /* 심각도 분리: hard 는 "검수자가 먼저 볼 가치"일 뿐이다.
+     상태는 휴리스틱으로 바꾸지 않는다 — ⚑(flagged) 는 사람이 붙인다. */
   out.hard = out.flags.filter(function (f) { return SEVERITY[f] === 'hard'; });
-  out.status = out.hard.length ? 'flagged' : 'verified';
+  out.status = 'verified';
   out.ghost = ghostOf(sim);
   out.verifyMs = Date.now() - t0;
   return out;

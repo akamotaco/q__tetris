@@ -154,8 +154,18 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS ix_hold_board ON rank_hold(board, until_ms);`);
   }
   const rc = new Set(db.prepare('PRAGMA table_info(runs)').all().map(c => c.name));
+  /* 여기서 한 번 크게 잘못됐다: 'ALTER TABLE runs ADD COLUMN ' + decl 만 붙인 적 있다
+     (decl 은 타입 문자열) → SQLite 는 이름 없는 정의를 **타입을 이름으로** 받아 조용히 성공한다.
+     그래서 컬럼이 'rules' 가 아니라 'TEXT' 로 생기고, RUN_COLS(table_info 기반) 는 그걸 모르므로
+     finalizeRun 의 키 필터가 값을 **에러 없이 버린다**. fresh DB 는 CREATE TABLE 에 이미 있어
+     통과하고, 구버전 DB 업그레이드 경로에서만 터지는 모양이었다.
+     → ① 이름을 반드시 붙인다 ② ALTER 후 실재하는지 확인하고 아니면 **죽인다** ③ 잔해 컬럼은 지운다. */
+  const runCols = () => new Set(db.prepare('PRAGMA table_info(runs)').all().map(c => c.name));
   const add = (name, decl) => {
-    if (!rc.has(name)) { console.log('[migrate] runs.' + name + ' 추가'); db.exec('ALTER TABLE runs ADD COLUMN ' + decl); }
+    if (rc.has(name)) return;
+    console.log('[migrate] runs.' + name + ' 추가');
+    db.exec('ALTER TABLE runs ADD COLUMN ' + name + ' ' + decl);
+    if (!runCols().has(name)) throw new Error('마이그레이션 실패: runs.' + name + ' 이 생성되지 않음');
   };
   add('verified_at', 'INTEGER');
   add('rules', 'TEXT');
@@ -163,12 +173,28 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
   add('mismatch', 'TEXT');
   add('queue_tier', 'INTEGER DEFAULT 1');
   add('attempts', 'INTEGER DEFAULT 0');
+  add('review_note', 'TEXT');      // ⚑ 는 사람이 붙인다 (검수 메모·시각)
+  add('reviewed_at', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS ix_status ON runs(status, id)');
   /* rate 도 같은 방식으로 (구버전 DB 에는 컬럼이 없다) */
+  const gcols = () => new Set(db.prepare('PRAGMA table_info(rate)').all().map(c => c.name));
   const gc = new Set(db.prepare('PRAGMA table_info(rate)').all().map(c => c.name));
-  const gadd = (name, decl) => { if (!gc.has(name)) { console.log('[migrate] rate.' + name + ' 추가'); db.exec('ALTER TABLE rate ADD COLUMN ' + decl); } };
+  const gadd = (name, decl) => {
+    if (gc.has(name)) return;
+    console.log('[migrate] rate.' + name + ' 추가');
+    db.exec('ALTER TABLE rate ADD COLUMN ' + name + ' ' + decl);
+    if (!gcols().has(name)) throw new Error('마이그레이션 실패: rate.' + name + ' 이 생성되지 않음');
+  };
   gadd('n_prev', 'INTEGER DEFAULT 0');
   gadd('seen_at', 'INTEGER');
+  /* 위 버그가 지나간 DB 에만 남아 있는 이름 없는 컬럼 정리. 실패해도 무해하다(값을 쓰는 데가 없다). */
+  const sweepJunk = (table) => ['TEXT', 'INTEGER'].forEach((junk) => {
+    const has = db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(table, junk);
+    if (!has) return;
+    try { db.exec('ALTER TABLE ' + table + ' DROP COLUMN "' + junk + '"'); console.log('[migrate] ' + table + '.' + junk + ' 제거 (이전 마이그레이션 버그 잔해)'); }
+    catch (e) { console.log('[migrate] ' + table + '.' + junk + ' 제거 실패 — 무해하게 방치: ' + e.message); }
+  });
+  sweepJunk('runs'); sweepJunk('rate');
 })();
 
 /* ================= 유틸 ================= */
@@ -573,6 +599,13 @@ function playback(runId, viewer, src, via) {
   db.prepare('INSERT INTO playbacks(run_id, at, viewer, src, via) VALUES (?,?,?,?,?)')
     .run(runId, now(), viewer || null, src || null, via || null);
 }
+/** ⚑ 를 사람의 손으로 붙이고 뗀다. 상태만 바꾸고, 기록·순위 이력은 건드리지 않는다(삭제 없음). */
+function markReview(share, status, note) {
+  const st = status || 'flagged';
+  const r = db.prepare('UPDATE runs SET status = ?, review_note = ?, reviewed_at = ? WHERE share = ?')
+    .run(st, note || null, now(), share);
+  return r.changes;
+}
 function recordNote(runId, status) {   // 숨김도 삭제 없음
   db.prepare('UPDATE runs SET status = ? WHERE id = ?').run(status || 'withdrawn', runId);
   db.prepare('UPDATE rank_hold SET until_ms = ? WHERE run_id = ? AND until_ms IS NULL').run(now(), runId);
@@ -588,14 +621,14 @@ function pruneIps(days) {              // PII만 파기, 기록은 남는다
 }
 
 module.exports = {
-  db, now,
+  db, now, RUN_COLS,
   hmac, ipToHash, boardKey, boardParts, metricOf, shareKey, validShare,
   isBanned, ban, takeSlot, countUp,
   issueToken, consumeToken, peekToken, sweepTokens,
   touchOwner, ownerOf,
   insertRun, finalizeRun, pendingRuns, inFlightByIp, inFlightByFp, bumpAttempt,
   rankOnBoard, topOfBoard,
-  listBoard, countBoard, boards, getRunByShare, getRunByDigest, getRunById, runsByFp, totals,
+  listBoard, countBoard, boards, getRunByShare, getRunByDigest, getRunById, runsByFp, totals, markReview,
   snapshot, periodBoard, periodList, periodBoardAny, knownPeriods, periodKeys,
   holdInfo, holdForRun, lineageOf, bestRankOf,
   playback, recordNote, pruneIps,

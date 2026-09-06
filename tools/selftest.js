@@ -9,6 +9,7 @@ const C = require('../core.js');
 const EN = require('../engine.js');
 const RP = require('../replay.js');
 const AI = require('./ai.js');
+const I18N = require('../i18n.js');
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra) {
@@ -397,6 +398,27 @@ ok('퍼펙트 클리어 보너스 표 = 800/1200/1800/2000', JSON.stringify(C.PC
 })();
 
 ok('줄 삭제 연출 = 16틱(267ms) — 리플레이도 같은 타이밍', EN.CLEAR_TICKS === 16, EN.CLEAR_TICKS);
+
+/* 사전은 사람이 4개 언어에 손으로 키를 넣는다 — 그래서 대칭을 검사로 지킨다.
+   한 언어에만 키가 있으면 그 언어 사용자에게 원문 키('submit.nameWarn') 가 그대로 보인다. */
+ok('i18n: ko 의 모든 키가 4개 언어에 다 있다', (() => {
+  const C = I18N.catalog, base = Object.keys(C.ko);
+  const miss = I18N.LANGS.filter((l) => base.some((k) => !C[l] || !String(C[l][k] || '').trim()));
+  if (miss.length) console.log('    → 빠진 언어/키: ' + miss + ' / ko 키 ' + base.length + '개');
+  return miss.length === 0;
+})(), '');
+ok('i18n: ko 에 없는 키를 다른 언어만 갖지 않는다', (() => {
+  const C = I18N.catalog;
+  const extra = I18N.LANGS.filter((l) => Object.keys(C[l]).some((k) => C.ko[k] === undefined));
+  return extra.length === 0;
+})(), '');
+ok('i18n: {자리표시자} 가 언어마다 같다', (() => {
+  const C = I18N.catalog, base = Object.keys(C.ko);
+  const ph = (s) => (String(s).match(/\{[a-zA-Z]+\}/g) || []).sort().join(',');
+  const bad = base.filter((k) => I18N.LANGS.some((l) => ph(C.ko[k]) !== ph(C[l][k])));
+  if (bad.length) console.log('    → 불일치 키: ' + bad.join(','));
+  return bad.length === 0;
+})(), '');
 
 
 console.log('\n결과: ' + pass + '/' + (pass + fail) + ' 통과' + (fail ? ' (실패 ' + fail + ')' : ''));
