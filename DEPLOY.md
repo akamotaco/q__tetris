@@ -4,23 +4,31 @@
 
 ## 0. 소스 / 저장소
 
-이 프로젝트의 git remote `origin` 은 **머신 안의 로컬 베어 저장소**다(서버 불필요, 백업 용도):
+브랜치는 `main` 하나다. remote 는 두 개다 — **공개 저장소**와, 그걸 잃어버려도 되는 **로컬 백업**:
 
 ```bash
-git remote -v            # origin → C:/Users/akamo/repos/neon-tetris.git
-git push origin master   # 커밋 후 백업까지
-git tag -a v1.2 -m '...' && git push origin --tags
+git remote -v
+#   github  https://github.com/akamotaco/q__tetris.git   ← 업스트림 (여기로 push 된다)
+#   origin  C:/Users/akamo/repos/neon-tetris.git         ← 로컬 베어 저장소 (백업, OneDrive 밖)
+
+git push                     # = git push github main
+git push origin main         # 백업까지 (커밋마다 같이 돌린다)
+git tag -a v1.2 -m '...' && git push --tags && git push origin --tags
 ```
 
-실제 호스팅으로 올릴 때는 그 베어 저장소를 리모트로 바꾸거나, 최초 1회 복사로 씨를 뿌린다.
+로컬 베어 저장소를 써 둔 이유는 "서버 없이도 push 가능한 remote" 를 가지려는 것이다(실수로 브랜치를 날려도
+되돌릴 곳). 한쪽이 망해도 다른 쪽이 같은 커밋을 가지고 있다.
+
+호스팅 서버에는 공개 저장소를 클론하거나, 파일만 올려도 된다(빌드 없음):
 
 ```bash
-git clone /path/to/repos/neon-tetris.git /srv/neon-tetris      # 최초 배포
-# 또는: scp/rsync 로 복제 후 서버에서 git init 하는 대신 파일만 올려도 돌아간다(빌드 없음)
-
+git clone https://github.com/akamotaco/q__tetris.git /srv/neon-tetris   # 최초 배포
 cd /srv/neon-tetris && git pull --ff-only && sudo systemctl restart neon-tetris   # 업그레이드
 sudo systemctl stop neon-tetris && cp -a data data.bak-$(date +%F) && sudo systemctl start neon-tetris   # 롤백 전 백업
 ```
+
+> **올리기 전 확인**: `data/`(DB·시크릿) 은 `.gitignore` 로 잡혀 있어 커밋되지 않는다. 그래도 공개 저장소에
+> 올리기 전엔 `git log --all --name-only | grep -E "^data/|secret"` 이 빗난 적은 없는지 한 번 봐 두는 게 싸다.
 
 ## 1. 로컬/테스트
 
