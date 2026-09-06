@@ -1,6 +1,10 @@
 # 배포
 
-의존성 설치 없음(`npm install` 할 것이 없다). Node만 있으면 된다.
+먼저 **[QUICKSTART.md](QUICKSTART.md)** (혼자 하기 / 서버 한 대 / 공개 배포의 세 갈래). 이 문서는 그 **세부**다 — 실물 설정과 운영 이야기만 담는다.
+
+- §1 로컬/테스트 · §2 환경변수 · §3 systemd · §4 리버스 프록시(HTTPS) · §5 Docker
+- §6 SQLite 운영/백업 · §6.5 큐 모니터링 · §6.9 규칙 버전을 올리며 배포
+- §7 검수 · §8 배포 전 체크리스트
 
 ## 0. 소스 / 저장소
 
@@ -32,11 +36,23 @@ sudo systemctl stop neon-tetris && cp -a data data.bak-$(date +%F) && sudo syste
 
 ## 1. 로컬/테스트
 
+**의존성 설치 없음** — `npm install` 할 것이 없다. Node 하나면 된다.
+
 ```bash
 node --version    # 23.4 이상 권장(24 LTS 무난). node:sqlite 가 플래그 없이 열리기 시작한다
 node server/server.js                     # http://localhost:8787, DB: ./data/tetris.db
 PORT=80 NT_SECRET=... node server/server.js
 ```
+
+Windows 에서는 위 마지막 줄을 그대로 칠 수 없다(`VAR=값 명령` 은 POSIX 셸 문법이고 `openssl` 도 없다). PowerShell 버전:
+
+```powershell
+$env:PORT = '80'
+$env:NT_SECRET = node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+node server\server.js
+```
+
+(cmd 를 쓴다면 `set PORT=80` 을 별도 줄로 실행한 뒤 같은 프로세스에서 기동해야 한다 — 그래서 이 문서의 Windows 예제는 PowerShell 로 적었다.)
 
 **Node 22.5 – 23.3 을 써야 한다면 플래그를 붙여라** — 안 붙히면 `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` 로 죽는다(지금의 `server/db.js` 는 그 상황에서 읽을 수 있는 안내를 띄운다):
 

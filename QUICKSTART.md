@@ -1,0 +1,110 @@
+# 빠른 시작
+
+세 가지 길로 나뉩니다. 필요한 것 하나만 읽으면 됩니다.
+
+| 하고 싶은 것 | 여기로 |
+| --- | --- |
+| **A. 혼자만 한다** (서버·설치·인터넷 불필요) | **§A 아래** — 30초 |
+| **B. 기록 제출·월드 보드·공유 링크까지** (같은 네트워크/머신에 서버 하나) | **§B 아래** — 1분 |
+| **C. 진짜 인터넷에 공개** (도메인·HTTPS·서비스로 상시 가동) | **§C 아래** → 세부는 [DEPLOY.md](DEPLOY.md) |
+
+---
+
+## A. 혼자 한다 (오프라인, 싱글 플레이어)
+
+**서버도, 설치도, 빌드도 필요 없습니다.** Node조차 필요 없습니다.
+
+1. 이 저장소의 아래 파일을 한 폴더에 넣습니다 (또는 저장소를 내려받아 그대로 씁니다).
+
+   ```
+   index.html
+   core.js  engine.js  replay.js  identity.js  i18n.js  client.js  game.js
+   style.css  ui.css  favicon.svg  manifest.webmanifest
+   ```
+
+2. `index.html` 을 **더블클릭**합니다. 끝입니다.
+
+3. 오프라인에서 되는 것 / 안 되는 것:
+
+   | 되는 것 | 안 되는 것 (조용히 꺼져 있고, 화면에 사유가 뜬다) |
+   | --- | --- |
+   | 게임 전체(SRS·월킥·T-스핀·홀드·콤보·B2B·퍼펙트클리어), 최고점 저장, 소리, ko/en/ja/zh, 터치 조작, 숫자 글꼴까지 동일 | 기록 제출, 월드 보드, 명예의 전당, 공유 링크, 기간 집계 |
+   | 판이 끝나면 **이 기기 기록**에 `이 기기 기록 · 서버 미제출` 로 남는다 | 그 판을 나중에 제출하는 것 — 오프라인 판은 서버가 발급한 시드로 태어나지 않았기 때문에 구조상 불가능 |
+
+   게임 오버 후에는 공유 단계(이름 입력·링크) 자체가 나타나지 않습니다.
+
+   > 왜 이렇게까지 되는가: 엔진·리플레이·규칙이 전부 서버와 같은 파일(`core.js`/`engine.js`)이고 네트워크 호출은 예외를 던지는 대신 "오프라인" 신호로 바뀌도록 설계되어 있습니다. 실제로 `file://` 은 보안 컨텍스트라 WebCrypto·IndexedDB 도 살아 있습니다.
+
+- 서버를 나중에 켜면 그제서야 제출·보드가 켜집니다. 오프라인 때 만든 서명 키는 그 서버와 **다른 origin** 에 저장되어 있다면 새로 만들어집니다 (같은 폴더를 `http://localhost:8787` 로 여는 것과 더블클릭은 다른 저장소).
+
+---
+
+## B. 서버 세팅 (제일 단순한 형태)
+Node **24 LTS** 를 권장합니다 (최소 22.5, 단 22.5–23.3 은 `--experimental-sqlite` 플래그 필요).
+
+```bash
+node --version          # 확인
+node server/server.js   # → http://localhost:8787
+```
+
+브라우저에서 `http://localhost:8787` 열면 위 A의 모든 것 + **기록 제출·월드 보드·명예의 전당·공유 링크**가 켜집니다.
+DB 는 첫 실행 때 `data/tetris.db` 로 저절로 만들어집니다. 의존성 설치는 없습니다(`npm install` 할 것이 없음).
+
+### Windows (PowerShell)
+
+```powershell
+# 시크릿(시드 서명·IP 해시 키) — 없으면 data/secret 에 자동 생성되지만, 운영에서는 고정해서 백업하는 편이 좋습니다
+$env:NT_SECRET = node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+$env:PORT = '8787'
+node server\server.js
+```
+
+- 환경변수 문법만 다릅니다. cmd 에서는 `set NT_SECRET=...` 줄을 따로 쓰고, PowerShell 은 `$env:NAME = "..."`.
+- 이 머신(Windows)에서 서버 기동·`/api/health`·`/api/board` 응답은 자동화 테스트(`tools/verifytest.js`, `tools/e2e.js`, `tools/loadtest.js`)가 매번 같은 코드로 확인합니다.
+- **Windows 를 상시 서버로 두는 방법**(Task 스케줄러 / nssm 로 서비스화, 방화벽 인바운드 규칙, IIS 뒤에 두기)은 아직 실제로 돌려보지 않았습니다 → [UNVERIFIED.md](UNVERIFIED.md) 의 #15 에 적혀 있습니다. 당장 쓰는 건 §B 로 포그라운드 실행이 가장 단순합니다.
+
+### Linux (한 줄)
+
+```bash
+NT_SECRET=$(openssl rand -hex 32) NT_BASE_URL=https://예시.com node server/server.js
+```
+
+상시 가동(systemd 유닛·리버스 프록시·백업) 은 아래 §C 와 [DEPLOY.md](DEPLOY.md) 에 그대로 붙여넣을 수 있는 설정이 있습니다.
+
+### Docker
+
+```bash
+docker build -t neon-tetris .
+docker run -d -p 8787:8787 -v $PWD/data:/app/data --restart unless-stopped neon-tetris
+```
+
+---
+
+## C. 공개 배포 (요약)
+
+인터넷에 열려면 반드시 필요한 것 하나가 더 있습니다: **HTTPS**. HTTPS 가 없으면 브라우저가 보안 컨텍스트에서 벗어나 WebCrypto 를 쓰지 못 하고, 그 결과 **게임만 되고 제출·공유가 꺼져** 있습니다 (즉 §A 와 똑같은 상태가 웹에서 펼쳐진다).
+
+필수 4단계:
+
+1. Node 24 설치, 저장소 클론
+2. `NT_SECRET` 고정(백업) + `NT_BASE_URL=https://도메인` 설정
+3. 리버스 프록시로 HTTPS 종료 — Caddy 라면 `reverse_proxy 127.0.0.1:8787` 한 줄, nginx 예제도 있음
+4. 서비스로 상시 가동 — Linux 는 systemd 유닛, Windows 는 §B 의 한계를 먼저 읽어라
+
+자세한 것(systemd 유닛 전문, nginx 설정, 방화벽, SQLite 백업·WAL, 큐 모니터링 엔드포인트, 규칙 버전을 올리며 배포하는 법, 배포 전 체크리스트) 은 전부 [**DEPLOY.md**](DEPLOY.md) 에 있습니다.
+무엇을 막고 무엇을 못 막는지는 [**SECURITY.md**](SECURITY.md), 아직 확인하지 않은 것은 [**UNVERIFIED.md**](UNVERIFIED.md) 에 있습니다.
+
+---
+
+## 조작 (공통)
+
+| 키 | 동작 |
+| --- | --- |
+| `←` `→` | 이동 |
+| `↓` | 소프트 드롭 (+1점/칸) |
+| `Space` | 하드 드롭 (+2점/칸) |
+| `↑` `X` / `Z` / `A` | 시계 / 반시계 / 180° 회전 |
+| `C` `Shift` | 홀드 |
+| `P` `Esc` | 일시정지 · `R` 재시작 · `M` 소리 |
+
+모바일/태블릿은 화면 아래 터치 바가 뜹니다. 모드 3종(MARATHON / SPRINT 40 / ULTRA 2:00)과 시작 레벨 1–20, 20G 옵션이 있습니다.

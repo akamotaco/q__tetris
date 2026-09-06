@@ -1,7 +1,18 @@
 # NEON TETRIS
 
 네온 글래스무디 웹 테트리스 + **리플레이 검증 월드 레코드**.
-빌드 없음, 런타임 의존성 없음(Node 내장 모듈만). `index.html`을 더블클릭해도 되고, 서버를 띄우면 기록을 제출해 공유할 수 있다.
+빌드 없음, 런타임 의존성 없음(Node 내장 모듈만).
+
+## 빠른 시작
+
+| 하고 싶은 것 | 방법 |
+| --- | --- |
+| **혼자만 한다** (서버·설치·인터넷 불필요) | `index.html` 을 **더블클릭**. 끝 |
+| **기록 제출·월드 보드·공유 링크** | `node server/server.js` → `http://localhost:8787` |
+| **인터넷에 공개** | HTTPS 가 필수 — [**QUICKSTART.md**](QUICKSTART.md) → [DEPLOY.md](DEPLOY.md) |
+
+각 단계의 세부(복사할 파일 목록, Windows/PowerShell 명령, Docker, 서비스화, 안 되는 것과 그 이유) 는
+**[QUICKSTART.md](QUICKSTART.md)** 에 한 장으로 정리되어 있다. 아래는 이 프로젝트의 구조와 설계에 대한 문서다.
 
 ```bash
 node server/server.js        # → http://localhost:8787   (제출·월드 보드·공유 활성화)
@@ -279,7 +290,9 @@ npm run bot                     # AI로 한 판 돌려 리플레이 생성 확�
 
 ## 배포
 
-[DEPLOY.md](DEPLOY.md)(systemd/nginx/Caddy/Docker, 백업, 환경변수)와 [SECURITY.md](SECURITY.md)(위협 모델과 남은 위험)를 참고하라. 요약:
+먼저 **[QUICKSTART.md](QUICKSTART.md)** (혼자 하기 / 서버 한 대 / 공개 배포 세 갈래).
+운영 세부 — systemd 유닛·nginx/Caddy·Docker·백업·환경변수·규칙 버전 올리는 법·체크리스트 — 은 [DEPLOY.md](DEPLOY.md),
+위협 모델과 남은 위험은 [SECURITY.md](SECURITY.md), 아직 확인하지 않은 것은 [UNVERIFIED.md](UNVERIFIED.md) 를 참고하라. 요약:
 
 ```bash
 node --version                    # 23.4 이상(24 LTS 권장). 22.5–23.3 은 --experimental-sqlite 필요
