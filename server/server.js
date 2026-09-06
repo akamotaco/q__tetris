@@ -561,7 +561,25 @@ if (require.main === module) {
   try { DB.snapshot(10); } catch (e) { console.error('[snap] 초기 스냅샷 실패:', e.message); }
   try { queue.recover(); } catch (e) { console.error('[queue] 복구 실패:', e.message); }
   server.listen(CFG.PORT, CFG.HOST, () => {
-    console.log('NEON TETRIS  http://localhost:' + CFG.PORT + '   data: ' + CFG.DATA_DIR + '   workers: ' + CFG.LIMITS.workers);
+    /* "http://localhost:8787" 만 찍어 온 걸 고친다. 0.0.0.0 에 떠서 다른 기기가 붙는 서버가
+       로그만 보면 localhost 전용으로 보인다 → 애플리케이션을 30분 의심하고 방화벽을 마지막에 본다(실사례).
+       IP 를 보여주면 그 다음 함정(비-locahost http 는 보안 컨텍스트가 아니라 제출이 꺼진다)도 같이 알려야 한다. */
+    const os = require('os');
+    const lan = [];
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const it of list || []) if (String(it.family) === 'IPv4' && !it.internal) lan.push(it.address);
+    }
+    const open = CFG.HOST === '0.0.0.0' || CFG.HOST === '::';
+    console.log('NEON TETRIS   data: ' + CFG.DATA_DIR + '   workers: ' + CFG.LIMITS.workers);
+    console.log('  바인딩      ' + CFG.HOST + ':' + CFG.PORT + (open ? ' (모든 인터페이스)' : ' ← 이 주소로만 열림'));
+    console.log('  이 기기     http://localhost:' + CFG.PORT + '   (제출·보드·공유 활성)');
+    lan.forEach((ip) => {
+      console.log('  이 네트워크 http://' + ip + ':' + CFG.PORT + (open ? '' : '   ← 바인딩이 ' + CFG.HOST + ' 라 이 주소로는 안 열립니다'));
+    });
+    if (lan.length && open) {
+      console.log('  참고        IP 주소로 열면 브라우저가 보안 컨텍스트가 아니라 제출·보드·공유가 꺼지고 게임만 돈다 (http://localhost 는 예외).');
+      console.log('              다른 기기에서 안 열리면 대개 그 기기의 방화벽 인바운드(TCP ' + CFG.PORT + ') 문제이지 이 서버가 아니다.');
+    }
   });
 }
 
