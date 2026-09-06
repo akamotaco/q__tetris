@@ -476,9 +476,17 @@ async function waitForTarget() {
     out.played = D.engine ? ('pieces=' + D.engine.pieces + ' score=' + D.engine.score) : '';
     await new Promise(r => setTimeout(r, 450));
     const box = document.getElementById('submitBox');
+    out.boxHidden = !box || box.classList.contains('hidden');
     out.boxText = box ? (box.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80) : '없음';
     out.hasNameInput = !!(box && box.querySelector('#subName'));
     out.hasSubmitBtn = !!(box && box.querySelector('#subGo'));
+    /* 공유 단계는 건너뛰되, 판은 이 기기에 남았는가 */
+    const mine = document.getElementById('mineList');
+    out.mineRows = mine ? mine.querySelectorAll('.wb-row').length : -1;
+    out.mineText = mine ? (mine.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    out.localLabel = (window.TetrisI18n && window.TetrisI18n.t) ? window.TetrisI18n.t('mine.localOnly') : '?';
+    out.dimRow = !!(mine && mine.querySelector('.wb-row.dim'));
+    try { const st = JSON.parse(localStorage.getItem('neon-tetris-mine') || '[]'); out.st0 = st.length ? { localOnly: !!st[0].localOnly, share: st[0].share || null, score: st[0].score } : null; } catch (e) { out.st0 = 'PARSE ERR'; }
     const n = document.querySelector('.net'); out.netDot = n ? n.className : '없음';
     const wb = document.getElementById('wbList'); out.board = wb ? (wb.innerText || '').trim().slice(0, 28) : '없음';
     const hf = document.getElementById('hofList'); out.hof = hf ? (hf.innerText || '').trim().slice(0, 28) : '없음';
@@ -490,8 +498,9 @@ async function waitForTarget() {
   ok2(off.secure === true, 'file:// 도 secure context (WebCrypto 사용 가능)');
   ok2(/^null/.test(off.session || ''), '세션 발급 실패를 null 로 강하(예외 아님)', off.session);
   ok2(off.state === 'over' && /pieces=[1-9]/.test(off.played || ''), '서버 없이도 한 판 끝까지 돈다', off.played);
-  ok2(off.hasSubmitBtn === false, '오프라인에서는 제출 버튼이 없다');
-  ok2(off.hasNameInput === false, '오프라인에서는 이름 칸도 내린다(적어도 "써서 뭐하지" 하는 함정은 남기지 않는다)', off.boxText);
+  ok2(off.boxHidden === true || (off.hasSubmitBtn === false && off.hasNameInput === false), '오프라인에서는 공유 단계(제출 상자)를 아예 띄우지 않는다', off.boxText);
+  ok2(!!off.st0 && off.st0.localOnly === true && off.st0.share === null, '판 자체는 이 기기 기록으로 남는다(미제출 표시)', off.st0);
+  ok2(off.mineRows >= 1 && off.dimRow === true && (off.mineText || '').indexOf(off.localLabel) >= 0, "'내 기록'에 '서버 미제출' 라벨로 보인다", [off.mineRows, off.mineText, off.localLabel]);
   ok2(/\.off/.test(off.netDot || '') || /off/.test(off.netDot || ''), '네트워크 표시는 꺼진 상태', off.netDot);
   ok2((off.board || '').length > 0 && (off.hof || '').length > 0, '보드·명예의 전당이 예외 대신 상태 문구를 보여준다', [off.board, off.hof]);
   ok2(off.stored.length > 0, '최고점 등 로컬 저장소는 동작한다', off.stored);

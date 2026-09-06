@@ -469,8 +469,13 @@
     });
     G.lastPacked = packed;
     G.lastReason = reason;
-    CL.rememberLocal(rec, packed, E.result());
+    /* 서버가 없으면(=세션 발급을 실패했으면) **공유 단계 자체를 건너뛴다.**
+       이름칸/링크 없는 상자를 띄워 "왜 안 되지" 를 만들 바엔, 판은 이 기기에만 저장해 두고 그 사실을 한 줄로 알린다.
+       (오프라인 판은 서버 시드로 태어나지 않아 어차피 나중에 제출할 수도 없다 — 그래서 "나중에" 가 아니라 "미제출" 이다) */
+    const offline = !session;
+    CL.rememberLocal(rec, packed, E.result(), { localOnly: offline });
     showOverlay('over');
+    if (offline) { CL.localOnlyNote(); return; }
     CL.onSubmitReady({
       packed: packed, result: E.result(), session: session,
       challengeOf: challenge ? challenge.share : null,

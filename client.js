@@ -157,15 +157,19 @@
   CL.playbackPing = function (share) { req('POST', '/api/play/' + share + '?via=share&v=' + encodeURIComponent(CL_VERSION)); };
 
   /* ================= 제출 ================= */
-  CL.rememberLocal = function (rec, packed, result) {
+  CL.rememberLocal = function (rec, packed, result, opt) {
+    const o = opt || {};
     const list = JSON.parse(lsGet(STORE.mine, '[]'));
     list.unshift({
       packed: packed, score: result.score, lines: result.lines, pieces: result.pieces,
-      ticks: result.ticks, mode: rec.mode, level: rec.level, g20: !!rec.g20, at: Date.now(), share: null,
+      ticks: result.ticks, mode: rec.mode, level: rec.level, g20: !!rec.g20, at: Date.now(),
+      share: null, localOnly: !!o.localOnly,
     });
     lsSet(STORE.mine, JSON.stringify(list.slice(0, 40)));
     renderMine();
   };
+  /** 오프라인 종료 시의 유일한 안내 — 공유 단계는 아예 띄우지 않는다 (game.js:onFinish) */
+  CL.localOnlyNote = function () { toast(L.t('mine.savedLocal')); };
   function patchLocal(packed, share) {
     const list = JSON.parse(lsGet(STORE.mine, '[]'));
     for (let i = 0; i < list.length; i++) if (!list[i].share && list[i].packed === packed) { list[i].share = share; break; }
@@ -630,11 +634,14 @@
     const rows = JSON.parse(lsGet(STORE.mine, '[]'));
     if (!rows.length) { list.innerHTML = '<div class="muted">' + esc(L.t('mine.empty')) + '</div>'; return; }
     list.innerHTML = rows.slice(0, 8).map(function (r) {
-      return '<div class="wb-row" data-share="' + esc(r.share || '') + '">' +
+      /* 링크가 없는 행이 두 종류다: "제출 안 함으로 둔 판"(나중에) 과 "서버 자체가 없던 판"(미제출).
+         전자만 나중에 링크가 붙을 수 있으니 라벨을 구분한다. */
+      const tail = r.share ? L.t('replay.watch') : (r.localOnly ? L.t('mine.localOnly') : L.t('submit.later'));
+      return '<div class="wb-row' + (r.share ? '' : ' dim') + '" data-share="' + esc(r.share || '') + '">' +
         '<i class="rk">' + esc(r.mode === 'sprint' ? fmtTime(r.ticks) : (r.score || 0).toLocaleString()) + '</i>' +
         '<span class="who">' + esc(L.t('mode.' + r.mode) || r.mode) + (r.level > 1 ? ' Lv' + r.level : '') + '<em>' + esc(new Date(r.at).toLocaleDateString()) + '</em></span>' +
         '<b class="mono">' + r.lines + 'L</b>' +
-        (r.share ? '<span class="sub">' + esc(L.t('replay.watch')) + '</span>' : '<span class="sub muted">' + esc(L.t('submit.later')) + '</span>') +
+        '<span class="sub muted">' + esc(tail) + '</span>' +
         '</div>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('.wb-row'), function (el) {
