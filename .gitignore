@@ -6,3 +6,4 @@ e2e-packed.txt
 *.db-wal
 *.db-shm
 logs/
+_*.tmp.js
