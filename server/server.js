@@ -458,6 +458,7 @@ async function handleApi(req, res, u) {
     }, {
       ipHash: iph, ipHint: ID.ipMask(ip), fp: fp, reveal: body.reveal !== false,
       challengeOf: challengeOf, clientVer: body.clientVer, lang: body.lang, issuedAt: tok.issuedAt,
+      device: V.cleanDevice(body.device),   /* 표시 전용 태그(자가 신고). 판정에는 쓰지 않는다. */
     });
 
     const added = queue.add({

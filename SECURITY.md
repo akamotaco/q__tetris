@@ -106,6 +106,8 @@
 | 닉네임 | `owners.display_name` (문자열, 보드 응답에 없음) | 무기한(삭제 요청 시 `recordNote`/숨김 + 필요하면 열 제거) |
 | 접속 IP | 원문 저장 **안 함**, `HMAC(ip + 일별 도메인)` 앞 24 hex | 30일 후 NULL 파기(`db.pruneIps`) |
 | 공개용 IP 힌트 | `runs.ip_hint` (예: `112.164.xx.xx`) | 기록과 함께 |
+| 기기 태그 | 분류만: `device_os`(android/ios/windows/…), `device_cls`(phone/tablet/desktop/hybrid), 코어·메모리·터치포인트·화면 최소변의 **클램프된 정수**. **raw UA 는 받지지도 저장하지도 않는다** — UA 는 제출 시각과 섞이면 추적 지문이 된다 | 기록과 함께 |
+| 기기 태그의 자격 | 브라우저 **자가 신고**라 위조가 쉽다. 그래서 표시·검수 참고만 하고 판정·순위에는 쓰지 않는다(`verifytest` 가 "같은 보드에서 순위는 점수 내림차순"으로 고정) | — |
 | 기기 지문 | 공개키 해시 base32 5 + 체크섬 1 | 무기한 (역추적 정보 없음) |
 | 개인키 | 서버에 **없음** (클라이언트 IndexedDB, `extractable:false`) | 사용자 브라우저를 나가는 일 없음 |
 

@@ -41,6 +41,7 @@ function detail(share) {
   console.log('share      :', r.share, '→ /r/' + r.share);
   console.log('상태        :', r.status, r.flags ? '(' + r.flags + ')' : '', r.review_note ? '— 검수: ' + r.review_note : '');
   console.log('보드/포인트 :', r.board, '점수', r.score.toLocaleString(), '/', r.lines, 'L /', RP.fmtTime(r.ticks), '/ 조각', r.pieces);
+  console.log('기기(신고)  :', (r.device_os || 'unknown') + ' / ' + (r.device_cls || 'unknown') + ' / 근거 ' + (() => { try { return JSON.parse(r.device_info || '{}').src || '?'; } catch (e) { return '?'; } })() + ' · 코어 ' + (() => { try { return JSON.parse(r.device_info || '{}').cores; } catch (e) { return '-'; } })());
   let mp = {}; try { mp = JSON.parse(r.metrics || '{}'); } catch (e) { }
   console.log('지표        :', JSON.stringify({
     pps: +Number(r.pps || 0).toFixed(2), apm: +Number(r.apm || 0).toFixed(1),

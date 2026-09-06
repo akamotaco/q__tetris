@@ -206,6 +206,52 @@
     }
   }
 
+  /** 기기 태그(자가 신고 · 표시 전용). 서버는 이 값을 믿지 않고 판정에도 쓰지 않는다.
+   *  raw UA 는 보내지 않는다 — 분류만 보낸다(UA 는 추적 재료로 쓸 수 있어서). */
+  async function deviceInfo() {
+    const out = {
+      os: 'unknown', cls: 'unknown', src: 'unknown',
+      cores: navigator.hardwareConcurrency || null, mem: navigator.deviceMemory || null,
+      tp: navigator.maxTouchPoints || 0,
+      vmin: Math.min((screen && screen.width) || 0, (screen && screen.height) || 0) || null,
+    };
+    const ua = String(navigator.userAgent || '');
+    const uad = navigator.userAgentData || null;
+    if (uad && typeof uad.platform === 'string') {
+      const p = String(uad.platform).toLowerCase();
+      out.os = /android/.test(p) ? 'android' : /ios/.test(p) ? 'ios'
+        : /chrome ?os|chromium os/.test(p) ? 'chromeos' : /win/.test(p) ? 'windows'
+          : /mac/.test(p) ? 'macos' : /linux/.test(p) ? 'linux' : 'other';
+      out.src = 'ua-ch';
+      if (typeof uad.mobile === 'boolean' && uad.mobile && out.cls === 'unknown') out.os = out.os === 'unknown' ? 'android' : out.os;
+    } else if (/android/i.test(ua)) { out.os = 'android'; out.src = 'ua'; }
+    else if (/iphone|ipad|ipod/i.test(ua)) { out.os = 'ios'; out.src = 'ua'; }
+    /* iPadOS 13+ 는 일부러 Mac 처럼 말한다 — 터치 포인트가 있는 맥intosh 는 사실상 아이패드 */
+    else if (/macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1) { out.os = 'ios'; out.src = 'ua'; }
+    else if (/windows/i.test(ua)) { out.os = 'windows'; out.src = 'ua'; }
+    else if (/cros|x86_64.*chrome/i.test(ua)) { out.os = 'chromeos'; out.src = 'ua'; }
+    else if (/mac os x|macintosh/i.test(ua)) { out.os = 'macos'; out.src = 'ua'; }
+    else if (/linux|x11/i.test(ua)) { out.os = 'linux'; out.src = 'ua'; }
+    else if (ua) { out.os = 'other'; out.src = 'ua'; }
+
+    const mq = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
+    const coarse = mq('(pointer: coarse)'), fine = mq('(pointer: fine)');
+    if (coarse && !fine) out.cls = (out.vmin && out.vmin >= 600) ? 'tablet' : 'phone';
+    else if (fine && !coarse) out.cls = 'desktop';
+    else if (fine && coarse) out.cls = 'hybrid';
+    return out;
+  }
+
+  /* 브랜드명은 번역하지 않는다(어디서든 같은 고유명사). 분류 단어만 i18n 키다. */
+  const DEV_LABEL = { android: 'Android', ios: 'iPhone/iPad', windows: 'Windows', macos: 'macOS', linux: 'Linux', chromeos: 'ChromeOS', other: '', unknown: '' };
+  function devTag(d) {
+    if (!d || d.os === 'unknown' || d.os === 'other') return '';
+    const clsKey = d.cls === 'phone' ? 'dev.phone' : d.cls === 'tablet' ? 'dev.tablet'
+      : d.cls === 'desktop' ? 'dev.desktop' : d.cls === 'hybrid' ? 'dev.hybrid' : null;
+    return '<span class="dev" title="' + esc(L.t('dev.hint')) + '">' + esc(DEV_LABEL[d.os] || '') +
+      (clsKey ? ' · ' + esc(L.t(clsKey)) : '') + '</span>';
+  }
+
   CL.submit = async function (info) {
     if (!info.session) return { error: 'offline' };
     const rec = RP.unpack(info.packed);
@@ -215,6 +261,7 @@
       replay: info.packed, nonce: nonce, lang: L.get(), clientVer: CL_VERSION,
       displayName: info.displayName || null, reveal: info.reveal !== false,
       challengeOf: info.challengeOf || null,
+      device: await deviceInfo(),        /* 표시 전용. 서명 페이로드(digest)와 무관해서 검증에 영향 없음 */
     };
     if (me) {
       body.fp = me.fp;
@@ -401,7 +448,8 @@
       '<span>' + esc(L.t('replay.by', { who: who })) + ' · ' + (d.score || 0).toLocaleString() +
       ' · ' + (d.lines || 0) + 'L · ' + fmtTime(d.ticks || 0) +
       (d.rank && d.rank.atSubmit ? ' · ' + esc(L.t('board.topAt', { rank: d.rank.atSubmit })) : '') +
-      (heldMs > 60000 ? ' · ' + esc(L.t('board.hold1', { time: fmtDur(heldMs) })) : '') + '</span>' +
+      (heldMs > 60000 ? ' · ' + esc(L.t('board.hold1', { time: fmtDur(heldMs) })) : '') +
+      ' ' + devTag(d.device) + '</span>' +
       (who ? '' : '') +
       '<span class="grow"></span>' +
       (d.mode !== 'marathon' || d.level > 1 ? '<span class="tag">' + esc(d.mode) + (d.level > 1 ? ' Lv' + d.level : '') + (d.g20 ? ' 20G' : '') + '</span>' : '') +
@@ -606,6 +654,7 @@
         '<b class="mono">' + esc(val) + '</b>' +
         '<span class="sub">' + esc(sec) + '</span>' +
         (row.status === 'flagged' ? '<span class="flag">⚑</span>' : '') +
+        devTag(row.device) +
         '</div>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('.wb-row'), function (el) {

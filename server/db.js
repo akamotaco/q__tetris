@@ -176,6 +176,10 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
   add('review_note', 'TEXT');      // ⚑ 는 사람이 붙인다 (검수 메모·시각)
   add('reviewed_at', 'INTEGER');
   add('real_ms', 'INTEGER');       // 클라이언트 경과(시드 발급→제출). 순위 지표가 아니라 **대비용 실측치**
+  /* 기기 태그: 분류 두 개만 컬럼으로 뽑고(필터·집계용), 나머지는 JSON 한 덩어리. raw UA 는 저장하지 않는다. */
+  add('device_os', 'TEXT');
+  add('device_cls', 'TEXT');
+  add('device_info', 'TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS ix_status ON runs(status, id)');
   /* rate 도 같은 방식으로 (구버전 DB 에는 컬럼이 없다) */
   const gcols = () => new Set(db.prepare('PRAGMA table_info(rate)').all().map(c => c.name));
@@ -379,6 +383,10 @@ function insertRun(row, meta) {
     client_ver: meta.clientVer || null,
     lang: meta.lang || null,
     issued_at: meta.issuedAt || null,
+    /* 기기 태그는 검증된 사실과 한 칸도 섞지 않는다 — 표시용 메타일 뿐이라 여기서 끝난다. */
+    device_os: meta.device ? meta.device.os : null,
+    device_cls: meta.device ? meta.device.cls : null,
+    device_info: meta.device ? JSON.stringify(meta.device) : null,
     submitted_at: now(),
   });
   if (Array.isArray(full.flags)) full.flags = JSON.stringify(full.flags);

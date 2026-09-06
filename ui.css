@@ -166,6 +166,9 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   padding: 7px 9px; backdrop-filter: blur(8px);
 }
 .rp-head { display: flex; align-items: center; gap: 8px; font-size: 11px; flex-wrap: wrap; }
+/* 기기 태그 — 작게, 점수를 가리지 않게. (자가 신고라는 사실은 title 에 있다) */
+.dev { font-size: 9.5px; letter-spacing: 0.06em; opacity: .62; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
+.wb-row .dev { grid-column: 1 / -1; justify-self: start; margin-top: 2px; }
 /* 재현 시간 / 클라이언트 경과 대비 라인 (검증된 기록에만 나타난다) */
 .rp-timing { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 10.5px; color: var(--dim); margin: 3px 0 6px; word-break: keep-all; line-height: 1.6; }
 .rp-timing b { color: var(--accent); letter-spacing: 0.03em; font-variant-numeric: tabular-nums; }

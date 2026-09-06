@@ -110,6 +110,7 @@ async function playAndSubmit(me, opt) {
     displayName: opt.displayName, reveal: opt.reveal, challengeOf: opt.challengeOf,
     clientVer: 'test',
   };
+  if (opt.device !== undefined) body.device = opt.device;
   if (opt.noSig !== true) body.owner = { jwk: me.jwk, sig: me.sign('NTSUB1', [V.digestOf(RP.unpack(packed)), s.json.nonce]) };
   if (opt.tamper) body.replay = opt.tamper(body.replay);
   const r = await api('POST', '/api/submit', body, ip);
@@ -378,6 +379,27 @@ async function playAndSubmit(me, opt) {
   const rj = DB.db.prepare("SELECT share FROM runs WHERE status = 'rejected' LIMIT 1").get();
   const rjv = rj ? (await api('GET', '/api/replay/' + rj.share)).json : null;
   ok('기각된 기록은 대비 라인을 보여주지 않는다', !rjv || !rjv.time || rjv.time.shown !== true, rjv && rjv.time);
+
+  group('기기 태그 (표시 전용 — 판정과 무관)');
+  const pdev = await playAndSubmit(rival, { preset: 'human', ip: '211.1.1.40', device: { os: 'Android', cls: 'phone', src: 'ua', cores: 8, mem: 8, tp: 5, vmin: 390 } });
+  ok('태그가 있어도 정상 통과한다', pdev.submit.code === 200 && pdev.submit.json.status === 'verified', pdev.submit.json);
+  const pv = (await api('GET', '/api/replay/' + pdev.submit.json.share)).json;
+  ok('android / phone 으로 저장·노출된다', pv.device.os === 'android' && pv.device.cls === 'phone', pv.device);
+  ok('보드 행에도 붙는다 (분리 보드가 아니라 같은 보드의 표식)', (await api('GET', '/api/board?mode=marathon&level=1')).json.list.every((x) => x.device && x.device.os), '');
+  /* 악의적/고장 신고: enum 밖은 버리고 숫자는 클램프. 문자열을 그대로 DB 에 넣으면 그건 XSS 재료다. */
+  const hostile = await playAndSubmit(rival, { preset: 'human', ip: '211.1.1.41', device: { os: '<script>alert(1)</script>', cls: 'phonemaxx', cores: 1e9, mem: -5, tp: 9999, vmin: '매우 큼' } });
+  const hv = (await api('GET', '/api/replay/' + hostile.submit.json.share)).json;
+  ok('enum 밖은 unknown', hv.device.os === 'unknown' && hv.device.cls === 'unknown', hv.device);
+  ok('숫자는 클램프 / 숫자가 아니면 null', hv.device.cores === 256 && hv.device.mem === 0 && hv.device.tp === 64 && hv.device.vmin === null, hv.device);
+  ok('원시 UA·삽입 문자열은 어디에도 저장/노출되지 않는다',
+    !JSON.stringify(hv).toLowerCase().includes('mozilla') && !(DB.getRunByShare(hostile.submit.json.share).device_info || '').includes('<script'), '');
+  /* 순위가 이 값을 읽지 않는다는 직접 증거: 태그가 다른 두 판은 점수 순서대로만 선다 */
+  const pbare = await playAndSubmit(rival, { preset: 'human', ip: '211.1.1.42' });
+  const rows2 = (await api('GET', '/api/board?mode=marathon&level=1')).json.list;
+  const idx = (s) => rows2.findIndex((x) => x.share === s);
+  const devOf = (s) => { const r = rows2[idx(s)]; return r ? r.device.os : null; };
+  ok('태그 다른 판들이 같은 보드에 섞여 있다 (부문 분리 없음)', [devOf(pdev.submit.json.share), devOf(hostile.submit.json.share), devOf(pbare.submit.json.share)].filter(Boolean).length >= 2, '');
+  ok('같은 보드에서 순위는 점수 내림차순', rows2.every((r, i) => i === 0 || rows2[i - 1].score >= r.score), rows2.map((r) => r.score).join(','));
 
   group('모드 · 순위 · 시점');
   const sp1 = await playAndSubmit(hero, { mode: 'sprint', preset: 'human', ip: '211.1.1.30' });

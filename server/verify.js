@@ -305,6 +305,22 @@ function ghostOf(sim) {
  * UI에서 숨기는 것과 다르다: JSON 으로 새어나가면 보드가 곧 이름 목록이 된다.
  * → 이 함수 하나로 막고, tools/verifytest.js 가 응답 문자열에 display_name 이 없는지 검사한다.
  */
+/**
+ * 기기 태그 — **자가 신고이며 표시 전용**. 판정·기각·순위에 절대 쓰지 않는다(원칙: 주장을 검증한다).
+ * raw UA 문자열은 저장하지 않는다 — UA + 제출 시각은 추적에 쓸 수 있는 지문 재료라서,
+ * 분류값만 남긴다. 클라이언트가 뭘 말하든 enum + 클램프 정수 통과분만 DB 에 간다.
+ */
+const DEV_OS = ['android', 'ios', 'windows', 'macos', 'linux', 'chromeos', 'other', 'unknown'];
+const DEV_CLS = ['phone', 'tablet', 'desktop', 'hybrid', 'unknown'];
+const DEV_SRC = ['ua-ch', 'ua', 'guess', 'unknown'];
+function cleanDevice(d) {
+  d = (d && typeof d === 'object') ? d : {};
+  const pick = (v, list) => { const s = String(v == null ? '' : v).toLowerCase(); return list.indexOf(s) >= 0 ? s : list[list.length - 1]; };
+  const int = (v, lo, hi) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null; };
+  return { os: pick(d.os, DEV_OS), cls: pick(d.cls, DEV_CLS), src: pick(d.src, DEV_SRC),
+    cores: int(d.cores, 0, 256), mem: int(d.mem, 0, 4096), tp: int(d.tp, 0, 64), vmin: int(d.vmin, 0, 20000) };
+}
+
 function publicRun(run, opt) {
   opt = opt || {};
   const o = {
@@ -325,6 +341,13 @@ function publicRun(run, opt) {
     tetrises: run.tetrises, tspins: run.tspins, pcs: run.pcs,
     challengeOf: run.challenge_of || null,
     overReason: run.over_reason,
+    /* 기기 태그(표시 전용). 없으면 unknown — 구버전 클라이언트/older 행은 전부 거기 해당한다. */
+    device: (function () {
+      let extra = {};
+      try { extra = run.device_info ? JSON.parse(run.device_info) : {}; } catch (e) { }
+      return { os: run.device_os || 'unknown', cls: run.device_cls || 'unknown',
+        src: extra.src || 'unknown', cores: extra.cores, mem: extra.mem, tp: extra.tp, vmin: extra.vmin };
+    })(),
   };
   o.hardFlags = o.flags.filter(function (f) { return SEVERITY[f] === 'hard'; });
   o.softFlags = o.flags.filter(function (f) { return SEVERITY[f] !== 'hard'; });
@@ -352,7 +375,7 @@ function boardList(rows, opt) {
 }
 
 module.exports = {
-  digestOf, cryptosha, verify, ghostOf, SEVERITY,
+  digestOf, cryptosha, verify, ghostOf, SEVERITY, cleanDevice,
   fpFromJwk, jwkPublicKey, verifyOwnership,
   cleanDisplayName, publicRun, boardList,
   maxPerWindow, rhythm, reaction, median,
