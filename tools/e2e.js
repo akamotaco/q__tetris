@@ -157,8 +157,11 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   /* 연결 표시 세 상태 — localhost 는 보안 맥락이라 초록이어야 한다(노랑이면 서명 키가 만들어지지
      않은 것이고, 빨강이면 서버를 못 만난 것이다). 아래 LAN 섹션에서 노랑을 함께 확인한다. */
   await waitReady("document.getElementById('netDot') && !document.getElementById('netDot').classList.contains('off')", '연결 점 초록화');
-  const dot0 = JSON.parse(await ev(`(function(){const d=document.getElementById('netDot');return JSON.stringify({cls:d.className,title:d.title||''});})()`));
+  const dot0 = JSON.parse(await ev(`(function(){const d=document.getElementById('netDot');return JSON.stringify({cls:d.className,title:d.title||'',rgb:getComputedStyle(d).backgroundColor});})()`));
   ok('연결 점이 초록이다(off/warn 없음)', !/off/.test(dot0.cls) && !/warn/.test(dot0.cls), dot0);
+  /* 클래스만 붙고 색은 안 붙는 사고가 이 프로젝트에 실재했다(ui.css 가 404 인 채로 오래 살았다).
+     그래서 computed style 로 실제 색을 확인한다. */
+  ok('초록색이 실제로 페인트된다', /62,\s*224,\s*143/.test(dot0.rgb || ''), dot0.rgb);
   ok('연결 점에 이유 설명이 걸려 있다(손가락에는 hover 가 없어 눌러서 본다)', (dot0.title || '').length > 6, dot0.title);
 
   group('2. 실제로 플레이 → 녹화 → 제출');
@@ -411,7 +414,8 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
         return JSON.stringify({ secure: window.isSecureContext, subtle: !!window.crypto.subtle,
           health: health, sess: sess, state: window.TetrisDebug.G.state,
           chip: chip ? chip.textContent.trim() : null, title: chip ? chip.title : '',
-          dotCls: (document.getElementById('netDot') || {}).className || '', dotTitle: (document.getElementById('netDot') || {}).title || '' });
+          dotCls: (document.getElementById('netDot') || {}).className || '', dotTitle: (document.getElementById('netDot') || {}).title || '',
+          dotRgb: getComputedStyle(document.getElementById('netDot')).backgroundColor });
       })()`, true));
       ok('LAN IP 의 http 는 보안 맥락이 아니다', lan.secure === false, lan);
       ok('그래서 브라우저에 WebCrypto 가 없다', lan.subtle === false, lan);
@@ -422,6 +426,7 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
       ok('칩 설명에 원인이 적혀 있다', /http/.test(lan.title || ''), lan.title);
       ok('연결 점은 노란색 — 닿지만 제출 불가(빨강도 초록도 아니다)', /warn/.test(lan.dotCls) && !/off/.test(lan.dotCls), lan.dotCls);
       ok('노란 점 설명이 이유를 말한다', /서명|http/.test(lan.dotTitle || ''), lan.dotTitle);
+      ok('노란색이 실제로 페인트된다', /255,\s*207,\s*74/.test(lan.dotRgb || ''), lan.dotRgb);
 
       /* 제출 상자: 눌러도 실패하는 버튼을 남기지 않고 그 자리에 이유를 쓴다.
          (여기서는 보드를 칠 끝내기 트릭을 써도 된다 — 제출하지 않고 렌더만 본다) */
