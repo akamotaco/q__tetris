@@ -259,6 +259,9 @@
 
   CL.submit = async function (info) {
     if (!info.session) return { error: 'offline' };
+    /* 서명할 수 없는 브라우저(http 접속 = 비보안 맥락)에서 sha256hex 가 터져 **아무 일도 일어나지
+       않는 버튼**이 된다. 이유를 값으로 돌려서 화면이 말하게 한다. */
+    if (!subtle || !me) return { error: 'no-identity' };
     const rec = RP.unpack(info.packed);
     const digest = await sha256hex(RP.canonical(rec));
     const nonce = info.session.nonce || '';
@@ -328,14 +331,17 @@
   CL.onSubmitReady = function (info) {
     const box = $('submitBox');
     if (!box) return;
-    const offline = !info.session;
-    /* 오프라인에도 이유가 셋이다. 하나("오프라인")로 뭉개면 서버가 살아있는 화면에서 유저가
-       자기 눈을 의심하게 된다: 세션(시드)은 판을 **시작할 때** 발급되므로, 그때 429/네트워크
-       실패가 났으면 이 판은 제출 불가지만 **지금** 연결은 정상이다.
-       (서명 키를 못 만드는 경우는 topbar 칩이 말한다 — 이 상자는file:// 에서만 열린다) */
-    const why = isFile ? 'submit.offline'
-      : CL.sessionFail === 'rate' ? 'submit.offlineRate'
-        : CL.sessionFail === 'banned' ? 'err.banned' : 'submit.offlineNet';
+    const offline = !info.session || !subtle;
+    /* 같은 "제출 불가"라도 이유가 넷이다. 하나("오프라인")로 뭉개면 서버가 살아있는 화면에서
+       유저가 자기 눈을 의심하게 된다(실제로 초록불 + 오프라인 문구가 같이 떴다).
+       - 세션(시드)은 판을 **시작할 때** 발급된다. 그때 429/연결 실패가 났으면 이 판만 제출 불가고
+         **지금** 연결은 정상이다.
+       - 서명 키는 **보안 맥락에서만** 만들어진다. http 로 IP 접속하면(폰 테스트) 서버가 코앞에
+         있어도 제출·공유가 꺼진다. 눌러도 실패하는 버튼을 남겨 두지 말고 이유를 그 자리에 쓴다. */
+    const why = !subtle ? 'submit.noIdentity'
+      : isFile ? 'submit.offline'
+        : CL.sessionFail === 'rate' ? 'submit.offlineRate'
+          : CL.sessionFail === 'banned' ? 'err.banned' : 'submit.offlineNet';
     const savedName = lsGet(STORE.name, '');
     const reveal = lsGet(STORE.reveal, '1') !== '0';
     box.classList.remove('hidden', 'done');
@@ -398,6 +404,10 @@
     if (res.error === 'duplicate') {
       out.innerHTML = '<div class="res warn">' + esc(L.t('submit.duplicate')) +
         (res.of ? ' · <a href="/r/' + esc(res.of) + '">' + esc(res.of) + '</a>' : '') + '</div>';
+      return;
+    }
+    if (res.error === 'no-identity') {
+      out.innerHTML = '<div class="res bad">' + esc(L.t('submit.noIdentity')) + '</div>';
       return;
     }
     if (res.error || !res.share) {

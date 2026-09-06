@@ -5,7 +5,8 @@
   "description": "리플레이 검증형 웹 테트리스 (런타임 의존성 0)",
   "scripts": {
     "start": "node server/server.js",
-    "test": "node test.js && node tools/extable.js && node tools/selftest.js && node tools/verifytest.js",
+    "test": "node tools/langscan.js && node test.js && node tools/extable.js && node tools/selftest.js && node tools/verifytest.js",
+  "langscan": "node tools/langscan.js",
     "test:browser": "node probe.js && node tools/e2e.js",
     "shot": "node tools/shot.js",
     "load": "node tools/loadtest.js 200 50",

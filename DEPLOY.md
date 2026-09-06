@@ -114,9 +114,81 @@ sudo systemctl daemon-reload && sudo systemctl enable --now neon-tetris
 journalctl -u neon-tetris -f
 ```
 
-## 4. 리버스 프록시 (HTTPS 필수)
+## 4. HTTPS — 왜 필요한가, 제일 빠른 순서로
 
-**HTTPS가 없으면 브라우저가 WebCrypto를 쓰지 못한다**(secure context). 즉 서명·제출·공유가 꺼지고 게임만 플레이 가능 mode가 된다.
+이유 한 줄: 브라우저는 **보안 맥락이 아닌 페이지에서 WebCrypto(`crypto.subtle`)를 잠근다.**
+그래서 폰에서 `http://192.168.1.22:8787` 로 열면 게임은 전부 플레이되고 월드 보드·명예의 전당·기간 집계
+(읽기 전용) 까지 뜨지만, **서명 키를 만들 수 없어 기록 제출과 공유 링크만 꺼진다.**
+화면 위 코드네임 자리가 `서명 불가` 로 바뀌는 것이 그 신호다(길게 눌러/마우스를 올려 원인을 볼 수 있다).
+
+| 어디서 쓰나 | 필요한 것 |
+| --- | --- |
+| 이 PC 에서만 | **아무것도 없음** — `http://localhost:8787` 은 예외로 보안 맥락이다 |
+| 같은 네트워크 폰·태블릿 | 아래 **B** (빠름) 또는 **C** (경고 없이) |
+| 인터넷 공개 | 아래 **D** |
+
+### B. 가장 빠른 방법 — Caddy 자가 서명 (`tls internal`)
+
+인증서 발급·갱신·만료 관리가 없다. 폰이 CA 를 모르므로 **경고 화면이 한 번 뜨고 계속 진입**하면 된다.
+
+```powershell
+winget install --id CaddyServer.Caddy -e        # 이름이 바뀌면 winget search caddy
+caddy version
+```
+
+```caddyfile
+# %USERPROFILE%\Caddyfile
+{
+  local_certs
+}
+http://:8788 {
+  redir https://{host}:8443{uri}                 # 기존 http 포트를 열어두면 자동으로 https 로 넘긴다
+}
+https://:8443 {
+  tls internal
+  reverse_proxy 127.0.0.1:8787
+}
+```
+
+```powershell
+caddy run --config $HOME\Caddyfile
+New-NetFirewallRule -DisplayName neon-tetris-tls -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow
+```
+
+이제 폰에서 `https://192.168.1.22:8443`. 서버 기동 시 **공유 링크도 https 가 되게** 넘긴다:
+`$env:NT_BASE_URL="https://192.168.1.22:8443"; node server/server.js`
+
+> Caddy 는 이 리포지토리의 의존성이 아니고 없어도 서버는 돌아갑니다. 아래 C·D 도 마찬가지 —
+> **여기 적힌 Caddy/mkcert 명령은 작성 환경에서 실행해 보지 않았습니다**(설치돼 있지 않다 — UNVERIFIED #10).
+> 검증한 것은 쪽이 아니라 브라우저 동작이다: LAN IP http 접속에서 `crypto.subtle` 이 없어 제출·공유만
+> 꺼지고 게임·보드 열람·시드 발급은 온전한 것을 **e2e 가 실브라우저로 확인**한다.
+
+### C. 경고 없이 — mkcert 로 LAN IP 인증서
+
+```powershell
+winget install --id FiloSottile.mkcert -e
+mkcert -install                                  # 이 PC 에 사설 CA
+mkcert 192.168.1.22 localhost 127.0.0.1          # 192.168.1.22+2.pem / +2-key.pem 이 생긴다
+```
+
+```caddyfile
+https://:8443 {
+  tls "192.168.1.22+2.pem" "192.168.1.22+2-key.pem"
+  reverse_proxy 127.0.0.1:8787
+}
+```
+
+폰에서 경고가 사라지려면 그 **CA 를 폰에 설치**해야 한다(iOS: `rootCA.pem` 을 폰으로 보낸 뒤 프로파일 설치 → 설정·일반·정보추적·인증서 신뢰 켜기 / Android: 설정 → 보안 → CA 인증서 설치). PC 대수·폰 대수 만큼 귀찮아지므로, 가족끼리 쓰는 LAN 에는 B 가 현실적이고 여러 기기가 편하게 붙어야 하면 C 가 맞습니다.
+
+### D. 도메인으로 공개 — 인증서 자동
+
+```caddyfile
+tetris.example.com {
+  reverse_proxy 127.0.0.1:8787
+}
+```
+
+Let's Encrypt 발급·갱신·리다이렉트가 자동이고 `X-Forwarded-For` 도 자동이라 `NT_TRUST_HOPS=1` 그대로 두면 된다. nginx 를 쓸 때의 최소 설정:
 
 ```nginx
 server {
@@ -133,7 +205,9 @@ server {
 }
 ```
 
-Caddy는 `reverse_proxy 127.0.0.1:8787` 한 줄이면 XFF/HTTPS 자동.
+> 리버스 프록시를 **떼고** 8787 을 그대로 공개할 때는 `NT_TRUST_HOPS=0` 을 잊지 마세요.
+> 기본값(1) 은 `X-Forwarded-For` 를 믿으므로, 프록시가 없으면 anyone 이 헤더로 IP 를 위조해
+> 네트워크 기준 제한을 피할 수 있습니다.
 
 ## 5. Docker
 

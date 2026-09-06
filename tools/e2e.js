@@ -348,7 +348,7 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   const after = await ev(`document.getElementById('meChip').textContent`);
   ok('지문 유지 (IndexedDB 개인키)', before && after && after === before, { before, after });
 
-  /* "내 기록" 을 눌러도 반응이 없다 → 행에 링크 복사 버튼이 있어야 한다(실기기反馈).
+  /* "내 기록" 을 눌러도 반응이 없다 → 행에 링크 복사 버튼이 있어야 한다(실기기 피드백).
      새로고침 후에도 지문이 같으니 서버에서 같은 기기의 기록을 가져와야 한다. */
   const mine = JSON.parse(await ev(`(async function(){
     const sleep = ms => new Promise(r=>setTimeout(r,ms));
@@ -365,6 +365,87 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   ok('그 행에 링크 복사 버튼이 있다', mine.hasBtn === true, mine);
   ok('복사 버튼의 대상이 진짜 /r/ 링크다', (mine.url || '').indexOf('/r/' + mine.share) > 0, mine.url);
   ok('복사하면 버튼이 상태를 말한다', /복사/.test(String(mine.label || '')), mine.label);
+
+  /* ================= 보안 맥락 강하 — 폰에서 http://LAN-IP 로 여는 실제 사용 경로 =================
+     위의 모든 테스트는 127.0.0.1 에서 돈다. 그런데 localhost 는 **예외적으로 보안 맥락**이라
+     WebCrypto 가 열려 있다. 그래서 "폰에서 IP 로 열면 제출이 꺼진다" 는 경로는 이 파일이 전혀
+     덮지 못했고, 그 경로에서 사용자는 초록불 + 오프라인 문구를 만났다. LAN IP 가 없는 머신에서는
+     실패가 아니라 건너뜀으로 남긴다(머신마다 네트워크가 다르다). */
+  group('보안 맥락 강하 (http://LAN-IP — 폰에서 여는 그 경로)');
+  const os = require('os');
+  let lanIP = null;
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of (list || [])) if (a.family === 'IPv4' && !a.internal) lanIP = a.address;
+  }
+  const LAN_PORT = PORT + 1 + Math.floor(Math.random() * 30);
+  let lanChild = null;
+  if (!lanIP) {
+    console.log('    → 비루프백 IPv4 가 없어 건너뜀 (이 머신에는 LAN 이 없다)');
+  } else {
+    lanChild = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
+      env: Object.assign({}, process.env, {
+        NT_PORT: String(LAN_PORT), NT_HOST: '0.0.0.0', NT_TEST_MODE: '1',
+        NT_DATA: path.join(process.env.TEMP || '/tmp', 'nt-e2e-lan-' + Date.now()),
+      }),
+      stdio: 'ignore',
+    });
+    const UP = 'http://' + lanIP + ':' + LAN_PORT;
+    if (!(await waitHttp(UP + '/api/health', 60))) {
+      console.log('    → ' + UP + ' 에 닿지 않아 건너뜀 (방화벽/네트워크 프로필 확인 필요)');
+    } else {
+      await navigate(UP + '/?debug');
+      await waitReady('window.TetrisClient && window.TetrisDebug', 'LAN 페이지 준비');
+      const lan = JSON.parse(await ev(`(async function(){
+        const sleep = ms => new Promise(r=>setTimeout(r,ms));
+        let health='no'; try { health = (await fetch('/api/health')).status; } catch(e) { health='fail'; }
+        let sess='?'; try { const s = await window.TetrisClient.session({ mode:'marathon', level:1, g20:false }); sess = s ? 'issued' : 'null'; } catch(e) { sess='throw:'+e.message; }
+        window.TetrisDebug.start(); await sleep(500);
+        const chip = document.getElementById('meChip');
+        return JSON.stringify({ secure: window.isSecureContext, subtle: !!window.crypto.subtle,
+          health: health, sess: sess, state: window.TetrisDebug.G.state,
+          chip: chip ? chip.textContent.trim() : null, title: chip ? chip.title : '' });
+      })()`, true));
+      ok('LAN IP 의 http 는 보안 맥락이 아니다', lan.secure === false, lan);
+      ok('그래서 브라우저에 WebCrypto 가 없다', lan.subtle === false, lan);
+      ok('서버는 닿는다 — 즉 문제는 네트워크가 아니다', lan.health === 200, lan.health);
+      ok('시드는 http 에서도 발급된다(플레이는 온전)', lan.sess === 'issued', lan.sess);
+      ok('게임이 시작된다', lan.state === 'playing', lan.state);
+      ok('코드네임 자리에 "서명 불가" 가 뜬다(예전엔 "오프라인" 이라 우겼다)', /서명\s*불가/.test(lan.chip || ''), lan.chip);
+      ok('칩 설명에 원인이 적혀 있다', /http/.test(lan.title || ''), lan.title);
+
+      /* 제출 상자: 눌러도 실패하는 버튼을 남기지 않고 그 자리에 이유를 쓴다.
+         (여기서는 보드를 칠 끝내기 트릭을 써도 된다 — 제출하지 않고 렌더만 본다) */
+      const lbox = JSON.parse(await ev(`(async function(){
+        const D = window.TetrisDebug; const sleep = ms => new Promise(r=>setTimeout(r,ms));
+        /* 보드를 채우기만 하면 끝나지 않는다: 다음 조각이 스폰을 못 해야 게임 오버다 → 드롭이 필요하다. */
+        for (let y=0;y<20;y++) for (let x=0;x<10;x++) D.G.board[y][x]='J';
+        for (let i=0;i<160 && D.G.state!=='over';i++){
+          window.dispatchEvent(new KeyboardEvent('keydown',{key:' ',bubbles:true}));
+          await sleep(60);
+          window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',bubbles:true}));
+          await sleep(60);
+        }
+        let txt=null, hasGo=null;
+        for (let i=0;i<80;i++){
+          await sleep(150);
+          const b=document.getElementById('submitBox');
+          if (b && !b.classList.contains('hidden')) {
+            txt = (b.innerText||'').replace(/\s+/g,' ').trim().slice(0,200);
+            hasGo = !!document.getElementById('subGo'); break;
+          }
+        }
+        const b0=document.getElementById('submitBox');
+        const ov=document.querySelector('.overlay:not(.hidden)');
+        return JSON.stringify({ txt: txt, hasGo: hasGo,
+          state: D.G.state, sessionFail: window.TetrisClient.sessionFail,
+          hasBox: !!b0, boxClass: b0 ? b0.className : null, overlay: ov ? ov.id : null,
+          toast: (document.querySelector('.toast')||{}).textContent || null });
+      })()`, true));
+      ok('상자에 제출 버튼이 없다(눌러도 죽는 버튼)', lbox.hasGo === false, lbox);
+      ok('상자가 이유를 말한다', /서명|http/.test(String(lbox.txt || '')), lbox);
+    }
+  }
+  if (lanChild) { try { lanChild.kill('SIGKILL'); } catch (e) { } }
 
   ok('런타임 에러 없음', errors.length === 0, errors.slice(0, 4));
 
