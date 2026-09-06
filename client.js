@@ -335,6 +335,11 @@
       '<label class="chk"><input id="subReveal" type="checkbox" ' + (reveal ? 'checked' : '') + '> ' + esc(L.t('submit.reveal')) + '</label>' +
       '</div>';
     box.innerHTML =
+      /* 좁은 화면에서 제출 상자는 **전체 화면 시트**가 된다(키보드가 뜨면 인라인 카드가 화면에서
+         사라진다 — 실기기에서 확인됨). 그래서 닫을 곳을 본문 아래('나중에')에 두지 않고
+         항상 보이는 머리말에 둔다. */
+      '<div class="sb-head"><span class="sb-title">' + esc(L.t('submit.title')) + '</span>' +
+      '<button class="btn tiny ghost" id="subClose">' + esc(L.t('replay.exit')) + '</button></div>' +
       idRow +
       /* 링크를 여는 사람에게 이름이 보인다는 것을 "만들고 나서"가 아니라 "만들기 전에" 알려야 한다. */
       (offline ? '' : '<div class="sb-warn">' + esc(L.t('submit.nameWarn')) + '</div>') +
@@ -347,6 +352,8 @@
       '<div class="sb-out" id="subOut"></div>';
     const later = $('subLater');
     if (later) later.addEventListener('click', function () { box.classList.add('hidden'); });
+    const closeBtn = $('subClose');
+    if (closeBtn) closeBtn.addEventListener('click', function () { box.classList.add('hidden'); });
     const go = $('subGo');
     if (go) go.addEventListener('click', async function () {
       const name = $('subName').value.trim();
@@ -408,24 +415,33 @@
       })) + ' <span class="muted">' + esc(L.t('time.pairHint')) + '</span></div>'
       : '';
     out.innerHTML = statusLine + rank + timeLine +
+      /* 여기서 input 태그를 닫지 않아서(끝에 '>' 없음) 아래 <button> 이 input 의 **속성으로 삼켜져**
+         복사 버튼이 DOM 에 아예 없었다. 링크를 봐도 복사할 버튼이 없던 원인.
+         태그를 고치고, 복사 수단을 3중(clipboard → execCommand → 손가락 길게누름 안내)으로 둔다. */
       '<div class="share">' +
       '<label>' + esc(L.t('submit.share')) + '</label>' +
-      '<input readonly value="' + esc(url) + '" id="shareUrl"' +
+      '<input readonly id="shareUrl" value="' + esc(url) + '" autocapitalize="off" spellcheck="false">' +
       '<button class="btn tiny" id="copyBtn">' + esc(L.t('submit.copy')) + '</button>' +
+      '<div class="share-tip" id="shareTip">' + esc(L.t('submit.copyHint')) + '</div>' +
       '</div>' +
       '<div class="sb-act"><button class="btn primary" id="watchBtn">' + esc(L.t('submit.watch')) + '</button>' +
       '<button class="btn ghost" id="againBtn">' + esc(L.t('ui.retry')) + '</button></div>';
-    const su = $('shareUrl');
-    if (su) su.addEventListener('click', function () { su.select(); });
+    /* 제출 결과가 화면 아래(보드 밖)에 만들어지면 "링크가 없다"고 밖에 안 보인다. 보이는 곳으로 올린다. */
+    const shareEl = out.querySelector('.share');
+    if (shareEl && shareEl.scrollIntoView) { try { shareEl.scrollIntoView({ block: 'center' }); } catch (e) { shareEl.scrollIntoView(); } }
     const cp = $('copyBtn');
     if (cp) cp.addEventListener('click', async function () {
-      try {
-        await navigator.clipboard.writeText(url);
-      } catch (e) {
-        const i = out.querySelector('.share input'); i.select(); document.execCommand && document.execCommand('copy');
+      let ok = false;
+      try { ok = !!(navigator.clipboard && await navigator.clipboard.writeText(url)); } catch (e) { }
+      if (!ok) {
+        try { const su0 = $('shareUrl'); su0.focus(); su0.select(); ok = document.execCommand('copy'); } catch (e) { }
       }
-      cp.textContent = L.t('submit.copied');
+      cp.textContent = L.t(ok ? 'submit.copied' : 'submit.copyFail');
+      const tip = $('shareTip'); if (tip && !ok) tip.classList.add('on');
+      setTimeout(function () { cp.textContent = L.t('submit.copy'); }, 1600);
     });
+    const su = $('shareUrl');
+    if (su) su.addEventListener('click', function () { su.select(); });
     const wb = $('watchBtn');
     if (wb) wb.addEventListener('click', function () { location.href = '/r/' + res.share; });
     const ab = $('againBtn');

@@ -485,6 +485,8 @@ async function waitForTarget() {
       paneTop: Math.round(document.getElementById('pane').getBoundingClientRect().top),
       mineTop: Math.round(document.getElementById('mineCard').getBoundingClientRect().top),
       paneMineShown: getComputedStyle(document.getElementById('paneMine')).display,
+      overscroll: getComputedStyle(document.body).overscrollBehaviorY,
+      sheetPos: getComputedStyle(document.getElementById('submitBox')).position,
     });
   })()`));
   ok2(mobFix.uiApplied === 'grid', 'ui.css 규칙이 페이지에 실제로 적용된다 (.wb-row 가 grid)', mobFix.uiApplied);
@@ -494,6 +496,8 @@ async function waitForTarget() {
   ok2(mobFix.cell >= 26, '모바일 칸 크기가 식별 가능한 수준(≥26px — 카드가 시트로 빠져 흐름에서 벗어남)', mobFix.cell + 'px');
   ok2(mobFix.mineInPane === true, '모바일에서 "내 기록"은 시트 안에 있다 (어디에도 없던 구멍)', mobFix.mineInPane);
   ok2(mobFix.mineTop >= mobFix.paneTop - 1, '내 기록은 시트 **안쪽에** 있다(열 때만 따라 나온다)', mobFix.mineTop + ' vs pane ' + mobFix.paneTop);
+  ok2(mobFix.overscroll === 'none', '화면을 당기는 브라우저 새로고침이 꺼져 있다(드래그 중 판 손실)', mobFix.overscroll);
+  ok2(mobFix.sheetPos === 'fixed', '제출·링크 화면은 모바일에서 전체 화면 시트다(키보드에 안 사라짐)', mobFix.sheetPos);
   ok2(mobFix.paneMineShown !== 'none', 'SCORE 오른쪽에 내 기록 진입로가 보인다', mobFix.paneMineShown);
 
   /* 시트(≡): 기본은 화면 밖, 열리면 월드 보드가 안으로 올라오고, 스크림으로 닫힌다. */

@@ -65,6 +65,10 @@ body {
 }
 
 /* ---------- 앱 껍데기 ---------- */
+/* 실기기에서: 게임 중 아래로 드래그하면 브라우저의 '당겨서 새로고침' 이 걸렸다.
+   제출 직전 화면에서 그건 입력하던 이름과 판을 날리는 일이다. 제스처 자체를 끈다. */
+html, body { overscroll-behavior-y: none; }
+
 .app {
   position: relative;
   z-index: 1;
@@ -346,6 +350,7 @@ kbd {
   flex: 1 1 0;
   min-width: 0;
   height: 52px;
+  touch-action: manipulation;   /* 더블탭 확대·제스처 대기 없이 바로 누름 처리 */
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
