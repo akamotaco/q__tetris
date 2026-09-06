@@ -68,7 +68,7 @@ module.exports = {
   TEST_MODE,
   PORT: parseInt(process.env.PORT || process.env.NT_PORT || '8787', 10),
   HOST: process.env.NT_HOST || '0.0.0.0',
-  /** 리버스 프록시 뒤 X-Forwarded-For的信任 여부 (숫자 = trusted proxy hop 수) */
+  /** 리버스 프록시 뒤에서 X-Forwarded-For 를 신뢰할지 (숫자 = 신뢰하는 proxy hop 수) */
   TRUST_PROXY_HOPS: parseInt(process.env.NT_TRUST_HOPS || '1', 10),
   BASE_URL: process.env.NT_BASE_URL || null,   // 공유 링크 절대 URL 생성용
   LIMITS,

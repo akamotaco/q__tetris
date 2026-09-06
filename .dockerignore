@@ -2,3 +2,4 @@ data/
 .git/
 docs/preview*.png
 *.log
+logs/

@@ -189,5 +189,6 @@ node tools/review.js --hide <share>  # 목록 제외 → hidden (데이터는 �
 - [ ] 규칙을 바꿨다면 `RULES_ID` · `tools/probe.js:RULES_EXPECT` · README 규칙 표 셋 다 올렸는가
 - [ ] `npm test && npm run test:browser` 통과
 - [ ] `npm run load` 로 폭주 시뮬레이션: `waiting` 이 쌓여도 `loopLag.p95` 가 조용한지
+- [ ] **[UNVERIFIED.md](UNVERIFIED.md)** 에서 배포에 막히는 항목을 소화했는가 — 특히 #1(이 문서의 설정을 글자대로 실기동) 과 #2(공유 IP 한도)
 - [ ] `NT_TEST_MODE` 미설정 확인
 - [ ] `GET /api/health`, `GET /api/board?mode=marathon` 응답 확인

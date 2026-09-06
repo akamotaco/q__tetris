@@ -256,13 +256,18 @@ T-스핀 판정(3-corner + 앞면 규칙 + 5번째 킥 승격, 마지막 동작�
 ## 테스트
 
 ```bash
-npm test             # 코어 99 + 엔진 78 + 서버 103  (의존성·브라우저 불필요)
-npm run test:browser # probe(게임/렌더링) + e2e(서버+브라우저 제출→검증→공유→재생) 39
+npm test             # 코어 99 + 엔진 96 + 서버 106 + 확장표 대조  (의존성·브라우저 불필요)
+npm run test:browser # probe(게임/렌더링/오프라인/폰트/크로스런타임) + e2e(서버→제출→검증→공유→재생) 39
 node tools/review.js            # 검수 대기열 (플래그된 기록 + 지표 + 순위 이력)
 node tools/loadtest.js 200 50   # 부하 실측: 제출 폭주 중 재시뮬 처리량과 서버 이벤트 루프 지연
+node tools/extable.js           # README 확장 표가 코드와 어긋났나 (npm test 에 이미 포함됨)
 npm run shot                    # README 스크린샷 재생성(임시 DB에 기록을 채운 뒤 캡처)
 npm run bot                     # AI로 한 판 돌려 리플레이 생성 확인
 ```
+
+테스트가 전부 통과하는 것과 사이트이 실세계에서 아픈 곳 없이 도는 것은 다른 문장이다.
+`npm test` 로 증명되지 않는 것(배포 경로 실기동, 공유 IP 한도, 상한 부하, 실기기 브라우저, 실제 HTTPS …)은
+**[UNVERIFIED.md](UNVERIFIED.md)** 에 목록으로 남아 있고, 닫으면 거기에 근거를 남긴다.
 
 | 테스트 | 본문을 무엇으로 증명하나 |
 | --- | --- |
@@ -280,6 +285,13 @@ npm run bot                     # AI로 한 판 돌려 리플레이 생성 확�
 node --version                    # 23.4 이상(24 LTS 권장). 22.5–23.3 은 --experimental-sqlite 필요
 NT_SECRET=$(openssl rand -hex 32) NT_BASE_URL=https://예시.com node server/server.js
 ```
+
+## 만든 이 / 크레딧
+
+- 기획·요구·검수: **ydm** (커밋 author 도 이 사람으로 통일 — GitHub 기여자 그래프는 author 기준이다)
+- 구현 세션 파트너: **pi 코딩 에이전트** + **Qwen** 모델 (규칙 감사, 서버·큐·검증, 테스트, 문서)
+- 글꼴: **Share Tech Mono** — Ralph du Carrois / Carrois Type Design, SIL OFL 1.1. 숫자만 잘라 CSS 에 내장했고 전문은 `fonts/OFL-ShareTechMono.txt`
+- 규칙: Tetris Guideline / SRS (월킥 원문 값은 공개된 표를 테스트에 재등재해 대조), T-스핀 3-corner
 
 ## 알고 가야 할 제약 (솔직한 부분)
 

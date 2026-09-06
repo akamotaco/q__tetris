@@ -122,7 +122,7 @@
       'board.refresh': '更新', 'board.watch': 'リプレイ', 'board.challenge': '挑戦',
       'board.anon': 'だれか', 'board.topAt': '提出当時 {rank}位', 'board.hold1': '1位維持 {time}',
       'hof.title': '殿堂', 'hof.week': '週間', 'hof.month': '月間',
-      'hof.empty': 'まだチャンピオンいません。', 'hof.this': '進行中',
+      'hof.empty': 'まだチャンピオンがいません。', 'hof.this': '進行中',
       'hof.wk': '{y}年{w}週', 'hof.mo': '{y}年{mo}月',
       'hof.longest': '最長1位 {time}', 'hof.longestNow': '最長1位 {time} (進行中)',
       'submit.title': '記録提出', 'submit.name': '表示名（任意）', 'submit.namePh': '空欄なら自動コードネーム',

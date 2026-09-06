@@ -18,7 +18,10 @@ process.env.NT_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-e2e-'));
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = 8931 + Math.floor(Math.random() * 40);
-const CDP = 9444;
+/* CDP 포트를 고정해 두면, 예전 실행의 headless 브라우저가 살아남아 포트를 점유한 다음 실행에서
+   "CDP 대상 없음" 이라는 원인 불명 오류가 난다 (실제로 겪음: 127.0.0.1:9444 를 좀비 msedge 가 점유).
+   랜덤 포트 + 트리 종속까지 죽이기로 바꾼다. */
+const CDP = 9400 + Math.floor(Math.random() * 500);
 const BASE = 'http://127.0.0.1:' + PORT;
 
 const BROWSER = [
@@ -44,6 +47,17 @@ async function waitHttp(url, tries) {
   return false;
 }
 
+/* headless 브라우저는 자식이 여러 개다. 부모만 SIGKILL 하면 좀비가 포트/프로파일을 점유한 채 남는다. */
+function killBrowser(b) {
+  try { if (!b || b.killed) return; } catch (e) { return; }
+  if (process.platform === 'win32') {
+    try { require('child_process').spawnSync('taskkill', ['/PID', String(b.pid), '/T', '/F'], { stdio: 'ignore' }); return; } catch (e) { }
+  }
+  try { b.kill('SIGKILL'); } catch (e) { }
+}
+
+let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스코프로 빼 둔다 */
+
 (async function main() {
   if (!BROWSER) { console.log('브라우저를 찾지 못했습니다.'); process.exit(1); }
 
@@ -54,7 +68,7 @@ async function waitHttp(url, tries) {
 
   /* ---- 브라우저 ---- */
   const profile = path.join(process.env.TEMP || '/tmp', 'nt-e2e-' + Date.now());
-  const browser = spawn(BROWSER, [
+  browser = spawn(BROWSER, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--disable-extensions', '--hide-scrollbars',
     '--window-size=1280,900', '--remote-debugging-port=' + CDP, '--user-data-dir=' + profile,
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
@@ -65,15 +79,17 @@ async function waitHttp(url, tries) {
   let ws, mid = 0;
   const pending = new Map();
   async function target() {
-    for (let i = 0; i < 60; i++) {
+    let last = '응답 없음';
+    for (let i = 0; i < 80; i++) {
       try {
         const list = await (await fetch('http://127.0.0.1:' + CDP + '/json/list')).json();
         const p = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl && t.url.indexOf(BASE) === 0);   /* Edge 의 동기화 다이얼로그 등 다른 page 와 혼동 방지 */
         if (p) return p;
-      } catch (e) { }
+        last = 'page 후보 ' + list.length + '개: ' + list.map((t) => t.type + ' ' + String(t.url).slice(0, 40)).join(' | ');
+      } catch (e) { last = '조회 실패: ' + e.message + ' (포트 ' + CDP + ' 를 다른 프로세스가 점유한 건 아닌지 확인)'; }
       await sleep(250);
     }
-    throw new Error('CDP 대상 없음');
+    throw new Error('CDP 대상 없음 — ' + last);
   }
   function cmd(method, params) {
     return new Promise((resolve) => {
@@ -299,8 +315,8 @@ async function waitHttp(url, tries) {
 
   ok('런타임 에러 없음', errors.length === 0, errors.slice(0, 4));
 
-  browser.kill();
+  killBrowser(browser);
   srv.server.close();
   console.log('\n결과: ' + pass + '/' + (pass + fail) + ' 통과' + (fail ? '  \x1b[31m(실패 ' + fail + ')\x1b[0m' : ''));
   process.exit(fail ? 1 : 0);
-})().catch((e) => { console.error('\x1b[31me2e 크래시\x1b[0m', e); process.exit(2); });
+})().catch((e) => { console.error('\x1b[31me2e 크래시\x1b[0m', e); killBrowser(browser); process.exit(2); });

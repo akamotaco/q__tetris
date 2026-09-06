@@ -15,7 +15,9 @@ const EDGE = [
 ].find((p) => fs.existsSync(p));
 if (!EDGE) { console.log('브라우저를 찾지 못했습니다.'); process.exit(1); }
 
-const PORT = 9333;
+/* CDP 포트를 고정하면 예전 실행의 좀비 headless 가 포트를 점유한 채 "CDP 대상 없음" 을 만든다 (실제로 겪음).
+   e2e 와 같은 이유로 랜덤 포트를 쓴다. */
+const PORT = 9300 + Math.floor(Math.random() * 600);
 const url = 'file:///' + path.join(__dirname, 'index.html').replace(/\\/g, '/') + '?debug';
 const profile = path.join(process.env.TEMP || '/tmp', 'neon-tetris-probe');
 
@@ -41,18 +43,27 @@ function ok2(cond, label, detail) {
   if (cond) console.log('    PASS ' + label);
   else { checkFails++; console.log('    FAIL ' + label + (detail !== undefined ? ' -> ' + JSON.stringify(detail) : '')); errors.push('CHECK: ' + label); }
 }
+function killBrowser() {
+  if (process.platform === 'win32') {
+    try { require('child_process').spawnSync('taskkill', ['/PID', String(browser.pid), '/T', '/F'], { stdio: 'ignore' }); return; } catch (e) { }
+  }
+  try { browser.kill('SIGKILL'); } catch (e) { }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitForTarget() {
-  for (let i = 0; i < 60; i++) {
+  let last = '응답 없음';
+  for (let i = 0; i < 80; i++) {
     try {
       const list = await getJSON('/json/list');
       const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl && /index.html/.test(t.url));  /* 브라우저 자체 시작 페이지와 혼동 방지 */
       if (page) return page;
-    } catch (e) { /* 아직 준비 전 */ }
+      last = 'page 후보 ' + list.length + '개: ' + list.map((t) => t.type + ' ' + String(t.url).slice(0, 40)).join(' | ');
+    } catch (e) { last = '조회 실패: ' + e.message + ' (포트 ' + PORT + ' 를 좀비 브라우저가 점유하지 않았는지 확인)'; }
     await sleep(300);
   }
-  throw new Error('CDP 대상 없음');
+  throw new Error('CDP 대상 없음 — ' + last);
 }
 
 (async () => {
@@ -576,6 +587,6 @@ async function waitForTarget() {
   errors.slice(0, 12).forEach((e) => console.log('  ! ' + e));
 
   ws.close();
-  browser.kill('SIGKILL');
+  killBrowser();
   process.exit(errors.length ? 1 : 0);
-})().catch((e) => { console.log('프로브 실패: ' + e.message); browser.kill('SIGKILL'); process.exit(1); });
+})().catch((e) => { console.log('프로브 실패: ' + e.message); killBrowser(); process.exit(1); });
