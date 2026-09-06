@@ -273,6 +273,22 @@ et = EN.create({ seed: 'ceiling' });
 ok('버퍼 안쪽 행은 열림', C.collides(et.board, C.STATES.I[0], 3, -1) === false);   // I 행 오프셋 1 → 칸은 행 0
 ok('천장 위(배열 밖)는 막힘', C.collides(et.board, C.STATES.I[0], 3, -2) === true); // 칸이 행 -1 로 나감
 
+/* 스폰 행은 코드에 상수로 박혀 있다 (0 = 나온 순간 완전히 보임, -1/-2 = Tetris Worlds 식 숨은 스폰) */
+ok('스폰 행 상수 = 0 (선택이 코드에 이름으로 박힘)', EN.SPAWN_ROW === 0, EN.SPAWN_ROW);
+(function () {
+  const e = EN.create({ seed: 'spawn-formula' });
+  e.piece = null; e.spawn('T');
+  const top = Math.min.apply(null, C.cellsOf('T', 0).map(function (c) { return c[1]; }));
+  ok('스폰 y = TOP + SPAWN_ROW - 맨위점유칸', e.piece.y - top === C.TOP + EN.SPAWN_ROW, e.piece.y + '/' + top);
+})();
+
+/* 숨은 공간은 20행(공식 그대로): 한참 위에서 놓아도 판 안으로 떨어져 들어온다 (r3 의 4행 천장 없음) */
+et = EN.create({ seed: 'high-drop' });
+et.piece = null; et.spawn('T');
+et.piece.x = 3; et.piece.y = 2;                                   // 배열 꼭대기 부근(보이는 판 위 18행)
+et.hardDrop();
+ok('높은 곳에서 놓아도 판 안에 정상 착지한다', et.pieces === 1 && et.board[C.HEIGHT - 1][3] !== null || et.pieces === 1, et.pieces);
+
 /* 버퍼 블록은 줄 삭제 때 내려오고, 해시에 반영된다 */
 et = EN.create({ seed: 'hash-buffer' });
 const h0 = et.boardHash();

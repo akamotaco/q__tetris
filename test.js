@@ -44,7 +44,12 @@ console.log('\n[충돌/월킥]');
   ok(!C.collides(b, C.STATES.J[0], 0, 0), '버퍼 맨 위 행은 열림');
   ok(C.collides(b, C.STATES.J[0], 0, -1), '버퍼 위쪽은 천장(조각이 배열 밖으로 나갈 수 없다)');
   ok(C.createBoard().length === C.HEIGHT && C.HEIGHT === C.ROWS + C.BUFFER, '보드는 보이는 20행 + 버퍼 ' + C.BUFFER + '행');
+  ok(C.HEIGHT === 40 && C.BUFFER === 20, '필드는 공식 서술 그대로 10×40 (버퍼 20행)', C.HEIGHT + '/' + C.BUFFER);
   ok(C.row(19) === C.HEIGHT - 1, 'row() 은 보이는 행 → 배열 인덱스');
+  /* 천장이 40행 배열의 꼭대기에만 있다 = 공식과 같은 위치. 숨은 공간을 20행 끝까지 쓸 수 있어야 한다. */
+  ok(!C.collides(C.createBoard(), C.STATES.T[0], 3, 0), '배열 맨 위 행(인덱스 0) 은 놓인다');
+  ok(C.collides(C.createBoard(), C.STATES.T[0], 3, -1), '그 위(y<0) 는 천장');
+  ok(!C.collides(C.createBoard(), C.STATES.I[0], 3, C.TOP - 20), '보이는 판 위 20행(=공식 숨은 공간 끝) 까지 열림');
 })();
 // I 조각 스피너 월킥: 왼쪽 벽에 붙었을 때 회전 가능해야 함
 (function () {
@@ -213,6 +218,15 @@ console.log('\n[SRS 공식 테이블 호환 — 좌표계 변환]');
      r1 까지는 이게 "2칸 위"로 적용되어 조각이 선을 타고 솟아올랐다. */
   ok('0→R 4번째 시험 = 2칸 아래', C.kicksFor('T', 0, 1)[3][1] === 2, JSON.stringify(C.kicksFor('T', 0, 1)[3]));
   ok('0→R 3번째 시험 = 왼쪽+1칸 위', JSON.stringify(C.kicksFor('T', 0, 1)[2]) === '[-1,-1]', JSON.stringify(C.kicksFor('T', 0, 1)[2]));
+
+  /* I 킥은 변형이 두 개다(Guideline / Arika). 우리가 **어느 쪽인지** 코드에 박혀 있게 만든다. */
+  ok('I 변형 = guideline', C.I_KICK_VARIANT === 'guideline', C.I_KICK_VARIANT);
+  ok('I 0→R 은 Guideline 값', JSON.stringify(C.kicksForGuideline('I', 0, 1)) === JSON.stringify(C.KICKS_I_GUIDELINE_Y_UP['0>1']),
+    JSON.stringify(C.kicksForGuideline('I', 0, 1)));
+  ok('같은 전이의 Arika 값은 실제로 다르다(=이 검사가 의미 있다)',
+    JSON.stringify(C.KICKS_I_GUIDELINE_Y_UP['0>1']) !== JSON.stringify(C.KICKS_I_ARIKA_Y_UP['0>1']));
+  ok('JLSTZ 는 변형 없음(가이드라인=아리카 동일)', JSON.stringify(C.kicksForGuideline('T', 0, 1)) ===
+    JSON.stringify(C.KICKS_JLSTZ_Y_UP['0>1']));
 })();
 
 console.log('\n[SRS 참조 구현과 무작위 대조]');

@@ -448,7 +448,7 @@ async function waitForTarget() {
   await cmd('Emulation.clearDeviceMetricsOverride');
 
   console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');
-  const RULES_EXPECT = 'r3';   // engine.js RULES_ID 를 올리면 여기 도 올린다(일부러 하드코딩: unnoticed 로 넘기지 못 있게)
+  const RULES_EXPECT = 'r4';   // engine.js RULES_ID 를 올리면 여기 도 올린다(일부러 하드코딩: unnoticed 로 넘기지 못 있게)
   const startPath = JSON.parse(await evalJS(`(async () => {
     const out = { err: null, meta: null };
     try {

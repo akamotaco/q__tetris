@@ -29,6 +29,15 @@
   const PREVIEW = 5;
 
   /**
+   * 스폰 행: 조각의 **맨 위 점유 칸**이 놓이는 "보이는 행" 번호.
+   *   0  → 조각이 나온 순간 완전히 보인다 (현재 선택)
+   *  -1 / -2 → Tetris Worlds 식. 조각이 숨은 행에서 태어나 첫 1~2초 윗칸이 잘려 보인다.
+   * 공식은 이 행을 하나로 못 박지 않는다("나중 게임은 1행 아래, 어떤 게임은 2행 아래").
+   * 즉 선택의 영역이지만, **어느 쪽을 골랐는지 여기에 상수로 남아 있다** — 바꾸면 RULES_ID 도 올린다.
+   */
+  const SPAWN_ROW = 0;
+
+  /**
    * 규칙 버전. 리플레이는 "같은 입력 → 같은 결과"를 약속하는 문서 같은 것이므로,
    * 점수표·킥 테이블·T-스핀 판정 같은 규칙을 바꾸면 반드시 올린다.
    * 안 올리면 과거 리플레이가 서버에서 다른 점수로 재현되어 **검증 불가능한 유물**이 되고,
@@ -38,8 +47,11 @@
    *        그대로 적용해 킥의 위/아래가 뒤집혀 있었다 → 공식 SRS와 다른 셋업이 만들어졌다.
    *   r3 : 상단 버퍼 행(4행) 도입 + lock out 을 '조각이 전부 보이는 판 위에 잠길 때' 로 완화,
    *        O 조각 회전도 성공으로 취급(r2 까지는 실패). 보드 해시는 24행 전체 대상.
+   *   r4 : **필드를 공식 서술 그대로 10×40 으로**(버퍼 4→20행) — r3 까지는 보이는 판 위 4행에
+   *        인위적 천장이 있어 40행 구현과 갈리는 지점이었고, 그 차이가 이제 사라졌다. 보드 해시는 40행 대상.
+   *        같은 커밋에서 I 킥 변형(guideline) 과 스폰 행(SPAWN_ROW) 을 이름으로 고정.
    */
-  const RULES_ID = 'r3';
+  const RULES_ID = 'r4';
 
   /* ---------- 모드 ---------- */
   const MODES = {
@@ -169,8 +181,8 @@
         type: type,
         rot: 0,
         x: Math.floor((C.COLS - m[0].length) / 2),
-        /* 스폰은 보이는 판 위쪽 버퍼 영역. 조각의 첫 점유 행이 버퍼 안에 자리잡는다. */
-        y: C.TOP - C.EMPTY_TOP[type],
+        /* 스폰은 보이는 판 위쪽(SPAWN_ROW) 기준 — 조각의 맨 위 점유 칸이 그 행에 온다. */
+        y: C.TOP + SPAWN_ROW - C.EMPTY_TOP[type],
       };
       E.dropT = 0; E.lockT = 0; E.lockResets = 0;
       E.spinFlag = false; E.lastKick = 0; E.lastHard = false;
@@ -611,6 +623,7 @@
 
   return {
     RULES_ID: RULES_ID,
+    SPAWN_ROW: SPAWN_ROW,
     TICK: TICK, HZ: HZ,
     DAS: DAS, ARR: ARR, SOFT: SOFT, LOCK: LOCK, CLEAR_TICKS: CLEAR_TICKS,
     MAX_RESETS: MAX_RESETS, MAX_LEVEL: MAX_LEVEL, PREVIEW: PREVIEW,
