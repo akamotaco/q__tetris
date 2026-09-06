@@ -3,19 +3,39 @@
    테마 토큰(--bg, --accent …)은 style.css :root 를 그대로 쓴다.
    ============================================================ */
 
-/* ---------- 타이포그래피 (CJK) ----------
-   자체 호스팅 서브셋 폰트를 넣을 자리. 없어도 시스템 스택으로 완전히 동작한다.
-   예:
-   @font-face { font-family: "Pretendard"; font-weight: 400 900; font-display: swap;
-                src: url("fonts/pretendard-var-latin.woff2") format("woff2-variations"); unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF; }
-   @font-face { font-family: "Pretendard"; font-weight: 400 900; font-display: swap;
-                src: url("fonts/pretendard-var-hangul.woff2") format("woff2-variations"); unicode-range: U+1100-11FF, U+3130-318F, U+A960-A97F, U+AC00-D7AF; }
-*/
+
+/* ---------- 숫자 글꼴: 자체 호스팅 서브셋 ----------
+   시스템 모노는 Windows / macOS / Android / iOS 가 전부 달라서 점수·타이머의 생김과 자폭이 제각각이다.
+   그래서 **숫자만** 담은 서브셋을 CSS 에 인라인한다 — 파일로 두면 index.html 을 더블클릭한
+   오프라인 모드에서 안 뜨므로 base64 로 넣는다 (4.6KB, 요청 0개).
+   담긴 글리프: 0-9 : , . + - % # L 공백 ·  (숫자 주변에 쓰는 것들만).
+   원본: Share Tech Mono — Ralph du Carrois / Carrois Type Design, SIL Open Font License 1.1
+   라이선스 전문: fonts/OFL-ShareTechMono.txt (OFL 은 재배포 시 라이선스 동봉을 요구한다)
+
+   다시 만드는 법 (빌드 아님 — 이 파일을 한 번 고쳐 넣는 작업이라 커밋에 스크립트는 두지 않는다):
+     UA='Mozilla/5.0 ... Chrome/120.0 Safari/537.36'   # UA 를 보내야 woff2 를 준다
+     css=$(curl -s -A "$UA" "https://fonts.googleapis.com/css2?family=Share+Tech+Mono&text=0123456789%3A,.%2B-%25%23%20L%C2%B7")
+     # ↑ text= 가 곧 서브셋 요청이다 (숫자만 잘린 woff2 3.4KB 를 돌려준다 — 도구가 필요 없다)
+     url=$(printf '%s' "$css" | sed -n 's/.*url(\([^)]*\)).*/\1/p' | head -1)
+     curl -s -A "$UA" "$url" -o num.woff2 && base64 -w0 num.woff2   # 이 base64 를 아래 src 에 붙인다
+   ※ 글리프를 추가하면 unicode-range 도 같이 고쳐야 한다 (브라우저는 그 범위에 없는 문자를 이 폰트로 보내지 않는다). */
+@font-face {
+  font-family: "NeonNum";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;   /* 인라인이라 네트워크가 없다. swap 은 첫 프레임에 시스템 숫자가 보였다 바뀌어 흔들린다 */
+  src: url(data:font/woff2;base64,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) format("woff2");
+  unicode-range: U+20, U+23, U+25, U+2B-2E, U+30-3A, U+4C, U+B7;
+}
+
+/* ---------- 타이포그래피 (CJK) ---------- */
 :root {
   --sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI Variable", "Segoe UI",
           "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans JP",
           "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Roboto Mono", monospace;
+  /* 숫자만 쓰는 글꼴 — NeonNum 에 없는 문자는 알아서 --mono 로 떨어진다 (실패 모드가 없다) */
+  --num: "NeonNum", var(--mono);
 }
 
 /* 한국어는 CJK 기본 줄바꿈이 문장을 중간에 잘라버린다 → 어절 단위로만 나눔 */
@@ -25,10 +45,12 @@ body[data-lang="ja"], body[data-lang="zh"] { word-break: normal; overflow-wrap: 
 body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 
 .mono { font-variant-numeric: tabular-nums; font-family: var(--mono); }
-/* 점수·시간은 자리가 흔들리면 비교가 안 된다 */
+/* 점수·시간은 자리가 흔들리면 비교가 안 된다 — 숫자만 서브셋 글꼴로 세운다 */
 .big-num, .mini b, .wb-row b, .wb-row .rk, .rc-gap, .rp-ctrl .mono, .goal b,
-#statTime, #statPieces, #statLpm, #statAps, #statTetris, #statTspin, .me-chip span {
+#statTime, #statPieces, #statLpm, #statAps, #statTetris, #statTspin, .me-chip span,
+.hof-row b, .hof-row .per, #queueEta, .queue-row b {
   font-variant-numeric: tabular-nums;
+  font-family: var(--num);
 }
 
 /* ---------- 상단 상태 / 내 ID ---------- */

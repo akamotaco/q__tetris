@@ -462,6 +462,33 @@ async function waitForTarget() {
   if (startPath.err) errors.push('START: ' + startPath.err);
   if (!startPath.meta || startPath.meta.rules !== RULES_EXPECT) errors.push('START: 녹화 메타 규칙 버전이 예상과 다름 → ' + (startPath.meta && startPath.meta.rules) + ' (기대 ' + RULES_EXPECT + ')');
 
+  console.log('\n[8] 숫자 서브셋 글꼴(NeonNum) — 로드/적용/잘림');
+  const font = JSON.parse(await evalJS(`(async () => {
+    const out = { loaded: false, applied: '', widths: null, usesSubset: false, clipped: [] };
+    try { await document.fonts.load('12px NeonNum'); await document.fonts.ready; } catch (e) { out.err = String(e); }
+    out.loaded = document.fonts.check('12px NeonNum');
+    const el = document.getElementById('score') || document.querySelector('.big-num');
+    if (el) out.applied = getComputedStyle(el).fontFamily;
+    /* 정말로 서브셋이 그려지는가: 같은 문자열의 너비가 시스템 모노와 달라야 한다 */
+    const c = document.createElement('canvas').getContext('2d');
+    c.font = '12px NeonNum'; const a = c.measureText('0123456789').width;
+    c.font = '12px monospace'; const b = c.measureText('0123456789').width;
+    out.widths = [Math.round(a * 10) / 10, Math.round(b * 10) / 10];
+    out.usesSubset = Math.abs(a - b) > 0.5;
+    ['.big-num', '#statTime', '#statPieces', '#statLpm', '.mini b', '.goal b', '.wb-row b', '.hof-row b', '.rc-gap'].forEach(function (s) {
+      document.querySelectorAll(s).forEach(function (e) {
+        if (e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1) out.clipped.push(s + ' ' + e.clientWidth + '<' + e.scrollWidth);
+      });
+    });
+    return JSON.stringify(out);
+  })()`, true));
+  console.log('    ', font);
+  ok2(font.loaded === true, '숫자 서브셋이 로드된다(document.fonts.check)');
+  ok2(font.usesSubset === true, '서브셋이 실제로 그려진다(시스템 모노와 자폭이 다르다)', font.widths);
+  ok2(/NeonNum/.test(font.applied || ''), '점수 자리에 NeonNum 이 적용된다', font.applied);
+  ok2(font.clipped.length === 0, '글꼴 교체가 숫자 요소를 잘라내지 않는다', font.clipped);
+
+
   console.log('\n[9] 크로스 런타임 결정론 — 브라우저 엔진과 서버(노드) 재시뮬이 같은 결과를 내야 검증이 성립한다');
   const EN = require('./engine.js');
   const AI = require('./tools/ai.js');
