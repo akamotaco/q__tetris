@@ -331,6 +331,9 @@ async function playAndSubmit(me, opt) {
   const aceRun = await playAndSubmit(rival, { preset: 'ace', ip: '211.1.1.21' });
   ok('엘리트급 인간 프로필도 verified', aceRun.submit.json.status === 'verified', aceRun.submit.json.status + '/' + JSON.stringify(aceRun.submit.json.flags));
   ok('자동으로는 flagged 가 하나도 생기지 않는다', (await api('GET', '/api/board?mode=marathon&level=1')).json.list.every(r => r.status !== 'flagged'));
+  /* 원칙 고정: **통계로 상태를 바꾸는 항목은 하나도 없다.** hard 가 하나라도 살아나는 순간
+     이 표는 다시 "판정 기준" 이 되고, 그건 곧 사람을 벌하는 기준이 된다. */
+  ok('SEVERITY 에 hard 가 없다 (hard 는 사람만 만든다)', Object.keys(V.SEVERITY).every((f) => V.SEVERITY[f] === 'soft'), JSON.stringify(V.SEVERITY));
   const marked = DB.markReview(bot.submit.json.share, 'flagged', '검수 재현: 간격이 균일한 판');
   ok('사람의 --flag 만 flagged 를 만든다', marked === 1 && DB.getRunByShare(bot.submit.json.share).status === 'flagged');
   ok('붙인 사정이 행에 남는다', DB.getRunByShare(bot.submit.json.share).review_note.indexOf('균일') >= 0);

@@ -171,13 +171,15 @@ function reaction(spawns, inputs) {
  *   얼마든지 회피한다 — 그래서 이 지표들은 자동 판정에서 완전히 빠진다.
  *   자동 판정은 "시뮬레이션이 같은 결과로 재구성되는가" 하나만 쓰고, ⚑ 는 사람이 붙인다
  *   (tools/review.js --flag).
- *   hard = "어떤 입력 장치로도 성립하기 어려운 형태" — 그래도 기각은 아니고 '먼저 볼 가치'일 뿐.
+ *   hard 는 **아무도 없다**. 한때 speed_impossible 이 hard 였는데, 그 값은 "동작간격의 편차 비율" 이라는
+ *   통계일 뿐 물리 불능이 아니다(버스트성은 롤킹에서도 그냥 나온다). hard 가 하나라도 살아나는 순간
+ *   이 표는 다시 "판정 기준" 이 되고, 그건 곧 가장 잘하는 사람을 벌하는 기준이 된다.
+ *   → hard 가 없는 것이 규칙이다 (verifytest 가 고정).
  */
 const SEVERITY = {
   pps_high: 'soft', pps_extreme: 'soft', input_rate: 'soft', apm_extreme: 'soft', input_burst: 'soft',
   tick_stacking: 'soft', metronome: 'soft', reaction_superhuman: 'soft', reaction_spam: 'soft',
-  machine_like: 'soft', sprint_inhuman: 'soft',
-  speed_impossible: 'hard',
+  machine_like: 'soft', sprint_inhuman: 'soft', speed_impossible: 'soft',
 };
 
 /* ================= 검증 본체 ================= */
