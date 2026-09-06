@@ -250,6 +250,8 @@ function verify(rec, ctx) {
   m.gapModeShare = rh.modeShare; m.gapStdev = rh.stdev; m.gapMean = rh.mean;
   const rx = reaction(sim.trace.spawns, rec.inputs);
   m.reactMedian = rx.median; m.reactFastShare = rx.fastShare; m.reactMedianAll = rx.medianAll;
+  /* 월클럭 단계에서 넣은 실측치가 이 한 줄에 통째로 덮어써져 사라진 적 있다(그래서 검수의 배율이 항상 null 이었다) */
+  if (out.metrics.realMs != null) m.realMs = out.metrics.realMs;
   out.metrics = m;
 
   if (out.speedSuspect) out.flags.push('speed_impossible');
@@ -324,6 +326,16 @@ function publicRun(run, opt) {
   };
   o.hardFlags = o.flags.filter(function (f) { return SEVERITY[f] === 'hard'; });
   o.softFlags = o.flags.filter(function (f) { return SEVERITY[f] !== 'hard'; });
+  /* 재현 시간(결정적 — 순위가 매겨지는 쪽)과 클라이언트 경과(시드 발급→제출)를 **나란히** 싣는다.
+     차이는 어뷰지 판정이 아니라 대비용 — 발급 후에 화면을 보든 대기하든 값이 커지므로 증거가 아니다.
+     반대 방향(재현 > 클라이언트 + 유예)은 물리적으로 성립하지 않아 그쪽은 서버가 기각한다. */
+  const simMs = Math.round(RP.seconds(run.ticks) * 1000);
+  const realMs = run.real_ms != null ? run.real_ms : (o.metrics && o.metrics.realMs != null ? o.metrics.realMs : null);
+  o.time = {
+    simMs: simMs, realMs: realMs,
+    deltaMs: realMs != null ? realMs - simMs : null,
+    shown: run.status === 'verified' || run.status === 'flagged',   // 검증된 기록에서만 추가 노출
+  };
   const own = run.fp ? require('./db').ownerOf(run.fp) : null;
   if (own) o.codename = own.codename;
   if (opt.reveal) {

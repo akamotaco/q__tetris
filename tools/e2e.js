@@ -278,12 +278,15 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
       inkA: a, inkB: b,
       fillW: fill ? fill.style.width : '',
       head: bar ? bar.textContent.replace(/\\s+/g,' ').slice(0,140) : '',
+      timing: (function () { const t = document.querySelector('#replayBar .rp-timing'); return t ? t.textContent.replace(/\\s+/g, ' ').trim() : ''; })(),
     });
   })()`, true));
   ok('리플레이 바 노출', rp.barShown);
   ok('리플레이가 실제로 그려짐', rp.inkA > 500 && rp.inkB > 500, rp);
   ok('진행도가 움직임', /%/.test(rp.fillW || '') && parseFloat(rp.fillW) > 0, rp.fillW);
   ok('이름이 화면에 표시', /테스트플레이어/.test(rp.head), rp.head);
+  /* 검증된 기록은 재현 시간과 클라이언트 경과를 **나란히** 보여준다 (순위는 여전히 재현 시간) */
+  ok('재현/클라이언트 시간 대비가 보인다', /재현/.test(rp.timing) && /클라이언트/.test(rp.timing) && /\d:\d\d\.\d/.test(rp.timing), rp.timing.slice(0, 90));
 
   group('5. 도전(경쟁) 플로우');
   await navigate(BASE + '/?debug=1&challenge=' + share);

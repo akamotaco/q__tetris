@@ -191,6 +191,7 @@ function onVerified(job, r) {
         mismatch: r.mismatch ? JSON.stringify(r.mismatch) : null,
         metrics: JSON.stringify(r.metrics || {}),
         sim_ms: r.simMs, verify_ms: r.verifyMs, verified_at: DB.now(),
+        real_ms: r.metrics && r.metrics.realMs != null ? r.metrics.realMs : null,
       });
       return;
     }
@@ -203,6 +204,8 @@ function onVerified(job, r) {
       pps: r.metrics.pps, apm: r.metrics.apm, inp_rate: r.metrics.ips,
       metrics: JSON.stringify(r.metrics || {}),
       sim_ms: r.simMs, verify_ms: r.verifyMs, verified_at: DB.now(),
+      /* 순위 지표는 재현 시간(결정적)이고, real_ms 는 **대비용 실측치**다. 둘 다 남긴다. */
+      real_ms: r.metrics.realMs != null ? r.metrics.realMs : null,
     });
   } catch (e) {
     console.error('[queue] 완료 처리 실패 #' + job.id + ':', e.message);

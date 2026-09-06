@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS runs (
   status       TEXT NOT NULL,         -- verified | flagged | rejected | withdrawn | hidden
   flags        TEXT,                  -- JSON 사유 코드 배열
   reject       TEXT,
-  sim_ms INTEGER, verify_ms INTEGER,
+  sim_ms INTEGER, verify_ms INTEGER,   /* 재시뮬/검증에 **걸린 시간(비용)**. 게임 시간이 아니다 — 게임 시간은 ticks(재현) 이고, 실측은 real_ms */
   fp TEXT, ip_hash TEXT, ip_hint TEXT,
   reveal       INTEGER NOT NULL DEFAULT 1,
   challenge_of TEXT,                  -- 격파 대상 share 키
@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
   add('attempts', 'INTEGER DEFAULT 0');
   add('review_note', 'TEXT');      // ⚑ 는 사람이 붙인다 (검수 메모·시각)
   add('reviewed_at', 'INTEGER');
+  add('real_ms', 'INTEGER');       // 클라이언트 경과(시드 발급→제출). 순위 지표가 아니라 **대비용 실측치**
   db.exec('CREATE INDEX IF NOT EXISTS ix_status ON runs(status, id)');
   /* rate 도 같은 방식으로 (구버전 DB 에는 컬럼이 없다) */
   const gcols = () => new Set(db.prepare('PRAGMA table_info(rate)').all().map(c => c.name));

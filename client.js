@@ -260,6 +260,13 @@
     const r = s - m * 60;
     return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1);
   }
+  /** 재현/실측 대비 전용 — HUD(fmtTime) 와 **같은 얼굴**(m:ss.s)이어야 눈으로 비교가 된다. */
+  function fmtMs(ms) {
+    if (ms == null || !isFinite(ms)) return '—';
+    const neg = ms < 0, s = Math.abs(ms) / 1000;
+    const m = Math.floor(s / 60), r = s - m * 60;
+    return (neg ? '-' : '') + m + ':' + (r < 10 ? '0' : '') + r.toFixed(1);
+  }
   function flagText(flags) {
     if (!flags || !flags.length) return '';
     return flags.join(', ');
@@ -348,7 +355,12 @@
     const rank = res.rank
       ? '<div class="rank">' + esc(L.t('submit.rank', { rank: res.rank, total: res.total })) +
       (res.isTop ? ' <b>' + esc(L.t('submit.newTop')) + '</b>' : '') + '</div>' : '';
-    out.innerHTML = statusLine + rank +
+    const timeLine = (res.time && res.time.shown && res.time.realMs != null)
+      ? '<div class="res note">' + esc(L.t('time.pair', {
+        sim: fmtMs(res.time.simMs), real: fmtMs(res.time.realMs), delta: fmtMs(Math.abs(res.time.deltaMs || 0)),
+      })) + ' <span class="muted">' + esc(L.t('time.pairHint')) + '</span></div>'
+      : '';
+    out.innerHTML = statusLine + rank + timeLine +
       '<div class="share">' +
       '<label>' + esc(L.t('submit.share')) + '</label>' +
       '<input readonly value="' + esc(url) + '" id="shareUrl"' +
@@ -396,6 +408,14 @@
       '<button class="btn tiny" id="rpChal">' + esc(L.t('replay.challenge')) + '</button>' +
       (d.fp && me && d.fp === me.fp ? '<button class="btn tiny ghost" id="rpHide">목록에서 숨기기</button>' : '') +
       '<button class="btn tiny ghost" id="rpExit">' + esc(L.t('replay.exit')) + '</button></div>' +
+      /* 검증된 기록에만 붙는 대비 라인 — 순위 지표(재현)를 교체하는 것이 아니라 나란히 보여주는 것이다. */
+      (function () {
+        const t = d.time || {};
+        if (!t.shown || t.realMs == null) return '';
+        return '<div class="rp-timing"><b>' + esc(L.t('time.pair', {
+          sim: fmtMs(t.simMs), real: fmtMs(t.realMs), delta: fmtMs(Math.abs(t.deltaMs || 0)),
+        })) + '</b> <span class="muted">' + esc(L.t('time.pairHint')) + '</span></div>';
+      })() +
       '<div class="rp-ctrl">' +
       '<span>' + esc(L.t('replay.speed')) + '</span>' +
       [1, 2, 4].map(function (s) { return '<button class="btn tiny sp" data-s="' + s + '">' + s + '×</button>'; }).join('') +

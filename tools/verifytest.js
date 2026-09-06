@@ -362,6 +362,20 @@ async function playAndSubmit(me, opt) {
   ok('RUN_COLS 도 새 컬럼을 안다 (모르면 finalizeRun 이 값을 조용히 버린다)', migj.inCols === true, mig);
   ok('이름 없는(TEXT/INTEGER) 잔해 컬럼이 없다', migj.junk.length === 0, migj.junk.join(','));
 
+  group('재현 시간 / 클라이언트 경과 (둘 다 남기고 둘 다 보여준다)');
+  const tv = (await api('GET', '/api/replay/' + bot.submit.json.share)).json;
+  ok('검증된 기록은 대비를 노출 대상으로 한다', !!tv.time && tv.time.shown === true, tv.time);
+  ok('재현 시간은 리플레이에서 결정적으로 나온다', tv.time.simMs === Math.round(RP.seconds(tv.ticks) * 1000), tv.time.simMs + ' vs ticks ' + tv.ticks);
+  ok('클라이언트 경과가 행에 박힌다', Number.isInteger(tv.time.realMs) && tv.time.realMs > 0, tv.time);
+  ok('차이는 두 수의 빼기다 (따로 계산한 숫자를 따로 실지 않는다)', tv.time.deltaMs === tv.time.realMs - tv.time.simMs, tv.time);
+  /* 물리적으로 성립하는 방향: 재현 ≤ 클라이언트 + 유예. 반대는 기각된다 — 그래서 여기서 이 부등식은 항상 참이어야 한다. */
+  ok('부등식 성립 (재현 ≤ 실측 + 유예)', tv.time.simMs <= tv.time.realMs + require('../server/config.js').LIMITS.wallclockGraceMs, tv.time);
+  const trow = DB.getRunByShare(bot.submit.json.share);
+  ok('DB 컬럼 real_ms (metrics 안에만 숨지 않는다)', trow.real_ms === tv.time.realMs, trow.real_ms);
+  const rj = DB.db.prepare("SELECT share FROM runs WHERE status = 'rejected' LIMIT 1").get();
+  const rjv = rj ? (await api('GET', '/api/replay/' + rj.share)).json : null;
+  ok('기각된 기록은 대비 라인을 보여주지 않는다', !rjv || !rjv.time || rjv.time.shown !== true, rjv && rjv.time);
+
   group('모드 · 순위 · 시점');
   const sp1 = await playAndSubmit(hero, { mode: 'sprint', preset: 'human', ip: '211.1.1.30' });
   /* '40줄 딱' 을 요구하면 안 된다: 스프린트는 lines >= 40 에서 끝나고, 마지막 조각이 2~4줄을 한꺼번에
