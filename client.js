@@ -732,6 +732,9 @@
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     };
     btn.addEventListener('click', function () { setPane(!document.body.classList.contains('pane-open')); });
+    /* SCORE 옆 진입로: 시트를 **여는** 역할만 한다(닫기는 스크림/≡ ). */
+    const mine = $('paneMine');
+    if (mine) mine.addEventListener('click', function () { setPane(true); });
     if (scrim) scrim.addEventListener('click', function () { setPane(false); });
     /* 시작했는데 시트가 보드를 덮고 있으면 소란스럽다. 버튼 생성 순서에 상관없이 위임으로 잡는다. */
     document.addEventListener('click', function (e) {

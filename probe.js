@@ -345,12 +345,17 @@ async function waitForTarget() {
   console.log('   ', ai);
 
   // 미드게임 데스크톱 스크린샷
-  const docs = path.join(__dirname, 'docs');
-  fs.mkdirSync(docs, { recursive: true });
+  /* ⚠ probe 는 **file://** 에서 돈다(오프라인 강하가 검증 대상). 그래서 여기서 만드는 사진은
+     "오프라인 모드" 화면이다 — docs/preview*.png 에 쓰면 `npm run test:browser` 가 README 그림을
+     조용히 오프라인 화면으로 덮어썼다(실제로 그랬다). 문서 그림의 유일한 생성자는 tools/shot.js(http).
+     probe 사진은 검사용으로만 임시 폴더에 남긴다. */
+  const shotDir = path.join(require('os').tmpdir(), 'neon-tetris-probe');
+  fs.mkdirSync(shotDir, { recursive: true });
   const shot1 = await cmd('Page.captureScreenshot', { format: 'png' });
   if (shot1.result && shot1.result.data) {
-    fs.writeFileSync(path.join(docs, 'preview.png'), Buffer.from(shot1.result.data, 'base64'));
-    console.log('    → docs/preview.png 저장');
+    const f = path.join(shotDir, 'probe-desktop.png');
+    fs.writeFileSync(f, Buffer.from(shot1.result.data, 'base64'));
+    console.log('    → ' + f + '  ( 임시: docs 그림은 tools/shot.js 것 )');
   }
 
   console.log('\n[4] 랜덤 플레이 스트레스트 (200회 하드드롭 + 이동/회전/홀드/일시정지)');
@@ -474,7 +479,12 @@ async function waitForTarget() {
       clip: clipped,
       overlap: score && stage ? Math.round(Math.min(stage.bottom,score.bottom)-Math.max(stage.top,score.top)) : -1,
       cell: cv ? Math.round(cv.height/20*10)/10 : 0,
+      vh: innerHeight,
       mine: getComputedStyle(document.getElementById('mineCard')).display,
+      mineInPane: !!(document.getElementById('pane') && document.getElementById('pane').contains(document.getElementById('mineCard'))),
+      paneTop: Math.round(document.getElementById('pane').getBoundingClientRect().top),
+      mineTop: Math.round(document.getElementById('mineCard').getBoundingClientRect().top),
+      paneMineShown: getComputedStyle(document.getElementById('paneMine')).display,
     });
   })()`));
   ok2(mobFix.uiApplied === 'grid', 'ui.css 규칙이 페이지에 실제로 적용된다 (.wb-row 가 grid)', mobFix.uiApplied);
@@ -482,13 +492,20 @@ async function waitForTarget() {
   ok2(mobFix.clip.length === 0, '버튼/셀렉트가 화면 오른쪽 밖으로 잘리지 않는다', mobFix.clip);
   ok2(mobFix.overlap <= 1, '보드가 SCORE 카드를 덮지 않는다', '겹침 ' + mobFix.overlap + 'px');
   ok2(mobFix.cell >= 26, '모바일 칸 크기가 식별 가능한 수준(≥26px — 카드가 시트로 빠져 흐름에서 벗어남)', mobFix.cell + 'px');
-  ok2(mobFix.mine === 'none', '모바일에서 내 기록 카드는 접힌다', mobFix.mine);
+  ok2(mobFix.mineInPane === true, '모바일에서 "내 기록"은 시트 안에 있다 (어디에도 없던 구멍)', mobFix.mineInPane);
+  ok2(mobFix.mineTop >= mobFix.paneTop - 1, '내 기록은 시트 **안쪽에** 있다(열 때만 따라 나온다)', mobFix.mineTop + ' vs pane ' + mobFix.paneTop);
+  ok2(mobFix.paneMineShown !== 'none', 'SCORE 오른쪽에 내 기록 진입로가 보인다', mobFix.paneMineShown);
 
   /* 시트(≡): 기본은 화면 밖, 열리면 월드 보드가 안으로 올라오고, 스크림으로 닫힌다. */
   const paneFix = JSON.parse(await evalJS(`(async () => {
     const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
     const btn = document.getElementById('paneBtn'), pane = document.getElementById('pane');
-    const before = { btn: btn ? getComputedStyle(btn).display : '없음', offTop: pane ? Math.round(pane.getBoundingClientRect().top) : -1, vh: innerHeight };
+    /* 디바이스 메트릭을 바꾼 직후에는 레이아웃이 아직 정립 중일 수 있다(실제로 한 번
+       "닫힌 시트" 가 화면 안으로 측정됐다). 기준선을 단발로 재면 플레이크가 되니 정립을 기다린다 —
+       기다려도 안 오면 아래 검정이 그 사실을 메시지로 말한다. */
+    let offTop = pane ? Math.round(pane.getBoundingClientRect().top) : -1;
+    for (let q = 0; q < 12 && offTop < innerHeight - 1; q++) { await sleep(150); offTop = pane ? Math.round(pane.getBoundingClientRect().top) : -1; }
+    const before = { btn: btn ? getComputedStyle(btn).display : '없음', offTop: offTop, vh: innerHeight };
     if (btn) btn.click();
     /* 고정 sleep 은 경합한다(한 번 wcVisible:false 로 잡혔다). 전환이 끝날 때까지 상태를 본다. */
     let open = { bodyOpen: false, wcVisible: false }, wc, i;
@@ -501,12 +518,27 @@ async function waitForTarget() {
     open.retries = i;
     const scrim = document.getElementById('paneScrim'); if (scrim) scrim.click();
     await sleep(350);
-    return JSON.stringify({ before: before, open: open, closedAfterScrim: !document.body.classList.contains('pane-open') });
+    const closedAfterScrim = !document.body.classList.contains('pane-open');
+    /* SCORE 옆 진입로도 같은 시트를 열어야 한다(두 개의 문이 다른 방으로 가면 안 된다). */
+    const pm = document.getElementById('paneMine'); if (pm) pm.click();
+    let mineVisible = false;
+    for (let k = 0; k < 16 && !mineVisible; k++) {
+      await sleep(100);
+      const mr = document.getElementById('mineCard').getBoundingClientRect();
+      mineVisible = mr.bottom > 0 && mr.top < innerHeight;
+    }
+    open.viaPaneMine = mineVisible;
+    const back = document.getElementById('paneBtn'); if (back) back.click();   /* 다음 검사에 상태를 남기지 않는다 */
+    await sleep(300);
+    return JSON.stringify({ before: before, open: open, closedAfterScrim: closedAfterScrim,
+      cleanAfter: !document.body.classList.contains('pane-open') });
   })()`, true));
   ok2(paneFix.before.btn !== 'none' && paneFix.before.btn !== '없음', '모바일에서 ≡ 버튼이 보인다', paneFix.before.btn);
   ok2(paneFix.before.offTop >= paneFix.before.vh - 1, '시트는 기본 상태에서 화면 밖에 있다', paneFix.before.offTop + ' vs vh ' + paneFix.before.vh);
   ok2(paneFix.open.bodyOpen === true && paneFix.open.wcVisible === true, '≡ 를 누르면 월드 보드가 화면 안으로 올라온다', JSON.stringify(paneFix.open));
+  ok2(paneFix.open.viaPaneMine === true, 'SCORE 옆 "내 기록 ▸" 도 같은 시트를 연다', JSON.stringify(paneFix.open));
   ok2(paneFix.closedAfterScrim === true, '스크림을 누르면 시트가 닫힌다', String(paneFix.closedAfterScrim));
+  ok2(paneFix.cleanAfter === true, '검사가 끝나면 시트가 닫힌 상태다(다음 검사에 상태를 남기지 않는다)', String(paneFix.cleanAfter));
 
   /* 터치 패드 2단: 줄 개수와 타깃 크기까지 본다 — "작게 한 줄" 로 되돌아가기 가장 쉬운 부분이다. */
   const pad = JSON.parse(await evalJS(`(function(){
@@ -636,8 +668,9 @@ async function waitForTarget() {
   await sleep(600);
   const shot2 = await cmd('Page.captureScreenshot', { format: 'png' });
   if (shot2.result && shot2.result.data) {
-    fs.writeFileSync(path.join(__dirname, 'docs', 'preview-mobile.png'), Buffer.from(shot2.result.data, 'base64'));
-    console.log('    → docs/preview-mobile.png');
+    const f2 = path.join(require('os').tmpdir(), 'neon-tetris-probe', 'probe-mobile.png');
+    fs.writeFileSync(f2, Buffer.from(shot2.result.data, 'base64'));
+    console.log('    → ' + f2 + '  ( 임시: file:// 화면이라 문서 그림으로 쓰지 않는다 )');
   }
   await cmd('Emulation.clearDeviceMetricsOverride');
   const shot = path.join(process.env.TEMP || '/tmp', 'neon-tetris.png');

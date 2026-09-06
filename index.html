@@ -45,12 +45,6 @@
         <canvas id="hold" class="preview"></canvas>
       </section>
 
-      <section class="card" id="mineCard">
-        <div class="card-head"><span data-i18n="board.me">내 기록</span><span class="hint">this device</span></div>
-        <div class="wb-list mine" id="mineList"></div>
-        <button class="btn tiny ghost" id="mineClear" data-i18n="mine.clear">목록 지우기</button>
-      </section>
-
       <section class="card stats">
         <div class="card-head"><span>STATS</span></div>
         <dl>
@@ -111,11 +105,22 @@
           <div class="mini wide"><span>BEST</span><b id="high">0</b></div>
         </div>
         <div class="chips" id="chips"></div>
+        <!-- 모바일에서 SCORE 스트립 오른쪽은 비어 있었다. 상단 바는 이미 예산이 가득 차서
+             (≡ 를 넣자마자 넘침) 이 자리가 옳다. 스트립 **끝**에 두는 것 — SCORE 레이블과 숫자
+             사이에 넣으면 점수 이름의 일부처럼 읽힌다. 데스크톱에서는 보이지 않는다. -->
+        <button class="btn tiny ghost" id="paneMine" data-i18n="pane.mineBtn">내 기록 ▸</button>
       </section>
 
       <!-- 시트(모바일): 데스크톱에서는 .pane 이 display:contents 라 아래 두 카드가 그냥 오른쪽 열에 쌓인다.
            모바일에서는 화면 아래에서 올라오는 패널이 된다 — 보드가 카드에 세로를 안 뺏기게. -->
       <div class="pane" id="pane">
+      <!-- 모바일에서는 시트가 이 세 카드를 아래에서 불러낸다. 그래서 "내 기록"도 이 안쪽에 있다
+           (한때 모바일에서 display:none 으로 사라져 어딘지도 모르게 되어 있었다). -->
+      <section class="card" id="mineCard">
+        <div class="card-head"><span data-i18n="board.me">내 기록</span><span class="hint">this device</span></div>
+        <div class="wb-list mine" id="mineList"></div>
+        <button class="btn tiny ghost" id="mineClear" data-i18n="mine.clear">목록 지우기</button>
+      </section>
       <section class="card" id="worldCard">
         <div class="card-head"><span data-i18n="board.title">월드 레코드</span><span class="hint" id="wbHold"></span></div>
         <div id="worldBoard"></div>
