@@ -44,6 +44,14 @@ body[data-lang="ja"], body[data-lang="zh"] { word-break: normal; overflow-wrap: 
 .ov-title, .ov-sub, .card-head, .keys { text-wrap: balance; }
 body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 
+/* 넓은 자간(0.14~0.28em)은 **라틴 대문자 표제**를 위한 것이다. 한글·가나에 그대로 걸리면
+   ① 자모 사이에 구멍이 생겨 글자가 깨진 것처럼 보이고 ② 단어 중간에서 줄이 째진다
+   ("명예의 / 전 당" — 실제로 모바일 카드 헤더에서 그랬다). 언어가 CJK 로 잡히면 자간을 거둔다.
+   예외: 로고와 START(언어와 무관하게 라틴 전용). 줄break 규칙은 위 locale 규칙에 이미 있다. */
+:is(body[data-lang="ko"], body[data-lang="ja"], body[data-lang="zh"])
+  :is(.card-head, .mini span, .ov-stats i, .tagline, .ov-hint, .rc-names, .goal, .set,
+      .btn:not(#ovBtn), [data-i18n]) { letter-spacing: 0.02em; }
+
 .mono { font-variant-numeric: tabular-nums; font-family: var(--mono); }
 /* 점수·시간은 자리가 흔들리면 비교가 안 된다 — 숫자만 서브셋 글꼴로 세운다 */
 .big-num, .mini b, .wb-row b, .wb-row .rk, .rc-gap, .rp-ctrl .mono, .goal b,
@@ -226,7 +234,13 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 @media (max-width: 900px) {
   /* 모바일은 보드 중심. 카드는 아래로 스크롤 (보드가 카드에 갉아먹히지 않게) */
   .app { overflow-y: auto; overflow-x: hidden; }
-  .stage-slot { min-height: 44vh; }
+  .stage-slot { min-height: 0; height: 100%; }
+  /* min-height:44vh 를 쓴 적 있다. 그 칸(트랙)이 287px 밖에 못 받는데 상자를 361px 로 키워버리면
+     그리드는 못 줄이고 **바로 아래 카드를 52px 덮어씁는다** — 보드가 카드 뒤에 반투명으로 비쳤다.
+     크기는 트랙에 맡기고(1fr), JS 의 resize() 가 그때 맞는 칸 크기를 고른다. */
+  .logo { white-space: nowrap; flex: 0 0 auto; font-size: 15px; letter-spacing: 0.12em; }
+  .me-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; max-width: 44vw; }
+  /* 로고가 56px 로 눌려 4줄로 째지는 실제 사고였다: .logo 는 줄바꿈 금지, 줄어드는 쪽은 닉네임 칩이다. */
   #mineCard { display: none; }
   #worldCard { grid-area: 4 / 1 / 5 / 3; }
   .settings { gap: 6px; }
