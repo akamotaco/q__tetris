@@ -327,5 +327,77 @@ const human = AI.run({ seed: 'spam', skill: { delay: 10, gap: 7, jitter: 0.35, r
 console.log('    spam PPS ' + RP.pps(spam).toFixed(2) + ' / human PPS ' + RP.pps(human).toFixed(2));
 ok('AI 초고속 PPS > 인간 설정 PPS', RP.pps(spam) > RP.pps(human));
 
+/* ---------- 9. 확장 항목(공식이 정하지 않은 것) 고정 ---------- */
+group('확장 registry + 동작 고정');
+ok('EXTENSIONS 가 코드 밖에서 읽힌다', EN.EXTENSIONS && Object.keys(EN.EXTENSIONS).length >= 8, EN.EXTENSIONS && Object.keys(EN.EXTENSIONS).length);
+ok('모든 확장 항목에 value/official/why 가 있다',
+  Object.keys(EN.EXTENSIONS).every(function (k) {
+    const e = EN.EXTENSIONS[k];
+    return e && typeof e.value === 'string' && e.value.length > 0 && typeof e.official === 'string' && typeof e.why === 'string';
+  }), Object.keys(EN.EXTENSIONS).filter(function (k) { const e = EN.EXTENSIONS[k]; return !e || !e.value || !e.official || !e.why; }));
+
+/* registry 의 값이 실제 상수를 가리키는가 (문서-코드 어긋남의 뿌리) */
+const pv = Number(/^(\d+)개$/.exec(EN.EXTENSIONS.preview.value)[1]);
+ok('registry preview == EN.PREVIEW', pv === EN.PREVIEW, EN.EXTENSIONS.preview.value + '/' + EN.PREVIEW);
+ok('registry field == C.HEIGHT', EN.EXTENSIONS.field.value.indexOf('10×' + C.HEIGHT) === 0, EN.EXTENSIONS.field.value);
+ok('registry dasArr == 실제 틱', EN.EXTENSIONS.dasArr.value === 'DAS ' + Math.round(EN.DAS * 1000 / 60) + 'ms / ARR ' + Math.round(EN.ARR * 1000 / 60) + 'ms', EN.EXTENSIONS.dasArr.value);
+
+/* 180° 회전: 자체 테이블(7칸) 이 동작하고, T-스핀 승격은 "5번째 시험 이후" 기준이다 */
+ok('180° 회전 성공', (function () {
+  const e = EN.create({ seed: 'e180' });
+  e.piece = null; e.spawn('L');
+  const before = e.piece.rot;
+  const okRot = e.rotate(2);
+  return okRot === true && e.piece.rot === (before + 2) % 4;
+})());
+ok('180° 킥은 7칸(90° 테이블과 다른 자체 설계)', C.KICKS_180.length === 7, C.KICKS_180.length);
+(function () {
+  /* 앞면 모서리 하나만 찬 자리: 인덱스 4~6 은 full 로 승격, 0~3 은 mini */
+  const b = C.createBoard();
+  b[C.row(17)][3] = 'J'; b[C.row(19)][3] = 'J'; b[C.row(19)][5] = 'J';
+  const at = function (kick) { return C.tspinKind(b, { type: 'T', x: 3, y: C.row(17), rot: 1 }, kick); };
+  ok('180° 승격: 인덱스 4~6 → full', [4, 5, 6].every(function (i) { return at(i) === 'full'; }), [4, 5, 6].map(at).join(','));
+  ok('같은 자리에서 인덱스 0~3 → mini', [0, 1, 2, 3].every(function (i) { return at(i) === 'mini'; }), [0, 1, 2, 3].map(at).join(','));
+})();
+
+/* 프리뷰: 공식은 "보여준다" 수준, 우리는 5개 — 그리고 7-bag 은 그대로다 */
+(function () {
+  const e = EN.create({ seed: 'prev5' });
+  ok('프리뷰 창이 5개 이상 채워진다', (e.queue || []).length + 1 >= EN.PREVIEW, (e.queue || []).length);
+  ok('PREVIEW 상수 = 5 (README 표와 같은 값)', EN.PREVIEW === 5, EN.PREVIEW);
+  /* 주머니 정렬이 어디에서 시작하든 성립하는 성질로 검사한다:
+     7-bag 이면 **어떤 7연속 조각이든 7종이 딱 한 번씩** 나온다. (개수 세기는 정렬에 따라 어긋날 수 있어 약하다) */
+  const seq = [];
+  const e2 = EN.create({ seed: 'bag7' });
+  seq.push(e2.piece.type);
+  for (let i = 0; i < 196; i++) { e2.piece = null; e2.spawn(null); if (e2.piece) seq.push(e2.piece.type); }
+  let badBag = 0, badWin = 0;
+  /* 주머니는 정렬된 7개 묶음이다. (슬라이딩 창으로 보면 서로 다른 주머니를 건너뛰어 당연히 중복이 난다 —
+     처음에 이걸로 검사했다가 헛점으로 잡았다) */
+  for (let i = 0; i + 7 <= seq.length; i += 7) if (new Set(seq.slice(i, i + 7)).size !== 7) badBag++;
+  const counts = {};
+  seq.forEach(function (t) { counts[t] = (counts[t] || 0) + 1; });
+  const n = Math.floor(seq.length / 7);
+  ok('7개 묶음마다 7종이 딱 한 번씩 (7-bag, 총 ' + seq.length + '조각)', badBag === 0, badBag + '개 묶음 위반');
+  ok('전체 분포도 균등(주머니 ' + n + '개)', C.TYPES.every(function (t) { return Math.abs((counts[t] || 0) - n) <= 1; }), JSON.stringify(counts));
+})();
+
+/* 점수 확장 값들 */
+ok('T-스핀 MINI 3줄 = 600×level (공식 표에 없는 항목)', C.scoreClear({ lines: 3, spin: 'mini', level: 1 }).points === 600, C.scoreClear({ lines: 3, spin: 'mini', level: 1 }).points);
+ok('퍼펙트 클리어 보너스 표 = 800/1200/1800/2000', JSON.stringify(C.PC_BASE.slice(1)) === JSON.stringify([800, 1200, 1800, 2000]), JSON.stringify(C.PC_BASE));
+
+/* 20G 옵션: 중력 1틱이고, g20 플래그가 런 상태(→보드 키·리플레이)에 남는다 */
+(function () {
+  const e = EN.create({ seed: 'g20', mode: 'marathon', level: 1, g20: true });
+  e.piece = null; e.spawn('T');
+  const y0 = e.piece ? e.piece.y : 0;
+  for (let i = 0; i < 5 && e.piece; i++) e.tick();
+  ok('20G 는 같은 틱에 여러 칸 내려간다', !e.piece || e.piece.y > y0 + 1, e.piece ? (e.piece.y - y0) : 'locked');
+  ok('g20 플래그가 런 상태에 남는다(보드 키/리플레이에 같이 감)', e.g20 === true, e.g20);
+})();
+
+ok('줄 삭제 연출 = 16틱(267ms) — 리플레이도 같은 타이밍', EN.CLEAR_TICKS === 16, EN.CLEAR_TICKS);
+
+
 console.log('\n결과: ' + pass + '/' + (pass + fail) + ' 통과' + (fail ? ' (실패 ' + fail + ')' : ''));
 process.exit(fail ? 1 : 0);

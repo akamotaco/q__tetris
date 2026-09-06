@@ -336,6 +336,11 @@
     KICKS_I_ARIKA_Y_UP: KICKS_I_ARIKA_Y_UP,
     KICKS_JLSTZ_Y_UP: KICKS_JLSTZ_Y_UP,
     CLEAR_NAME: CLEAR_NAME,
+    /* 스코어링 테이블 (확장 목록/테스트가 실제 값을 참조하게 공개) */
+    CLEAR_BASE: CLEAR_BASE,
+    TSPIN_BASE: TSPIN_BASE,
+    MINI_BASE: MINI_BASE,
+    PC_BASE: PC_BASE,
     kicksFor: kicksFor,
     kicksForGuideline: kicksForGuideline,
     createBoard: createBoard,

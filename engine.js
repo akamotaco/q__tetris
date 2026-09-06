@@ -53,6 +53,73 @@
    */
   const RULES_ID = 'r4';
 
+  /**
+   * 공식이 **정하지 않았거나 아예 존재하지 않는** 항목을 한 곳에 모아 둔다 ("확장").
+   * 값은 전부 실제 상수를 참조한다 — 즉 여기는 "무엇을 골랐는가" 에 대한 유일한 설명서다.
+   *
+   * README 의 "확장" 표는 `tools/extable.js` 가 여기서 생성하고, `npm test` 가 어긋남을 검사한다.
+   * (코드와 문서가 따로 노는 것 — 나중에 "이게 기본값이었나?" 하고 헤매는 것 — 을 테스트가 막는다.)
+   *
+   * ※ 확장이라고 해서 규칙이 아닌 게 아니다. 동작을 바꾸면 리플레이 재현이 깨지므로 RULES_ID 를 올려야 한다.
+   */
+  const EXTENSIONS = {
+    rotate180: {
+      value: '사용 (' + C.KICKS_180.length + '칸 킥, 화면 좌표 자체 설계)',
+      official: '공식 SRS 에 180° 회전은 없다',
+      why: '현대식 컨트롤. 180° 도 회전으로 취급되어 T-스핀이 될 수 있다. 승격 기준은 90° 와 같은 "5번째 시험(인덱스 4 이후)" 을 쓰므로, 7칸짜리 180° 테이블은 5~7번째 킥이 모두 승격 대상이다.',
+    },
+    preview: {
+      value: PREVIEW + '개',
+      official: 'NEXT 를 보여준다는 수준(관례상 1개)',
+      why: '현대식 게임은 5개를 보여준다. 무작위 분포는 그대로 7-bag 라 프리뷰 개수와 무관하다.',
+    },
+    tspinMiniTriple: {
+      value: (C.MINI_BASE[3] || 0) + '×level',
+      official: 'T-스핀 MINI 표에 3줄 항목이 없다',
+      why: '발생하면 점수 0 보다 나 두는 편이 낫다. 실제로는 거의 나올 수 없는 자리다.',
+    },
+    perfectClear: {
+      value: C.PC_BASE.slice(1).join('/'),
+      official: '게임별 상이 (고정된 공식값 아님)',
+      why: '가이드라인 문서에 단일 표가 없다. 우린 줄 수에 비례해 오르는 쪽을 택했다.',
+    },
+    dasArr: {
+      value: 'DAS ' + Math.round(DAS * 1000 / HZ) + 'ms / ARR ' + Math.round(ARR * 1000 / HZ) + 'ms',
+      official: '미규정 (플레이어 설정 항목)',
+      why: '구형 기준(140/33) 에 가장 가까운 정수 틱으로 잡았다.',
+    },
+    softDrop: {
+      value: '최소 ' + SOFT + '틱 (초당 ' + Math.round(HZ / SOFT) + '칸 상한)',
+      official: '미규정',
+      why: '연속 입력 속도엔 상한이 있어야 월클럭·휴먼오버 휴리스틱이 의미를 가진다.',
+    },
+    clearDelay: {
+      value: CLEAR_TICKS + '틱 (' + Math.round(CLEAR_TICKS * 1000 / HZ) + 'ms)',
+      official: '연출이라 미규정',
+      why: '틱으로 세면 리플레이 재생도 같은 타이밍이 된다(규칙에는 영향 없음).',
+    },
+    g20: {
+      value: '옵션 (중력 1틱 = 초당 ' + HZ + '칸)',
+      official: '미규정 (TGM 계열 개념)',
+      why: '켜면 보드 키와 리플레이에 g20 플래그가 같이 가서 다른 보드로 섞이지 않는다.',
+    },
+    iKickVariant: {
+      value: C.I_KICK_VARIANT,
+      official: 'Guideline(Tetris Worlds) 와 Arika(TGM3) 두 종이 다 "SRS" 로 불린다',
+      why: '가이드라인이 요구한 쪽은 표준 표다. 갈아끼우는 곳은 core.js:KICKS_I_BY_VARIANT 하나뿐.',
+    },
+    field: {
+      value: '10×' + C.HEIGHT + ' (보이는 ' + C.ROWS + ' + 숨은 ' + C.BUFFER + ')',
+      official: '10×40 (보이는 20 + 숨은 20)',
+      why: 'r4 부터 공식 서술을 문자 그대로 따른다. 보드 해시는 전체 행 대상(숨은 블록도 재현에 영향 준다).',
+    },
+    spawnRow: {
+      value: '보이는 행 ' + SPAWN_ROW + ' 에 맨 위 점유 칸',
+      official: '게임별 차이 (Tetris Worlds 는 숨은 행에 스폰; "나중 게임은 1행 아래, 어떤 게임은 2행 아래")',
+      why: '조각이 나온 순간 완전히 보이는 편이 체감이 낫다. 바꾸는 곳은 engine.js:SPAWN_ROW 하나.',
+    },
+  };
+
   /* ---------- 모드 ---------- */
   const MODES = {
     marathon: { name: 'MARATHON', targetLines: 0, timeLimit: 0, metric: 'score' },
@@ -623,6 +690,7 @@
 
   return {
     RULES_ID: RULES_ID,
+    EXTENSIONS: EXTENSIONS,
     SPAWN_ROW: SPAWN_ROW,
     TICK: TICK, HZ: HZ,
     DAS: DAS, ARR: ARR, SOFT: SOFT, LOCK: LOCK, CLEAR_TICKS: CLEAR_TICKS,

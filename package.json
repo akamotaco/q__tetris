@@ -5,11 +5,14 @@
   "description": "리플레이 검증형 웹 테트리스 (런타임 의존성 0)",
   "scripts": {
     "start": "node server/server.js",
-    "test": "node test.js && node tools/selftest.js && node tools/verifytest.js",
+    "test": "node test.js && node tools/extable.js && node tools/selftest.js && node tools/verifytest.js",
     "test:browser": "node probe.js && node tools/e2e.js",
     "shot": "node tools/shot.js",
     "load": "node tools/loadtest.js 200 50",
-    "bot": "node -e \"const AI=require('./tools/ai.js');const r=AI.run({preset:'human'});console.log(r.lines+'줄 / '+r.score+'점 / '+require('./replay.js').fmtTime(r.ticks));\""
+    "bot": "node -e \"const AI=require('./tools/ai.js');const r=AI.run({preset:'human'});console.log(r.lines+'줄 / '+r.score+'점 / '+require('./replay.js').fmtTime(r.ticks));\"",
+    "extable": "node tools/extable.js --write"
   },
-  "engines": { "node": ">=22.5" }
+  "engines": {
+    "node": ">=22.5"
+  }
 }
