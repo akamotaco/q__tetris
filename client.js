@@ -269,12 +269,15 @@
     const savedName = lsGet(STORE.name, '');
     const reveal = lsGet(STORE.reveal, '1') !== '0';
     box.classList.remove('hidden', 'done');
-    box.innerHTML =
-      '<div class="sb-row">' +
+    /* 오프라인(file://)에서는 제출 버튼이 없다. 그런데 이름 칸만 띄우면
+       "이름을 썼는데 어디에 쓰이나" 가 되므로, 줄 itself 을 내린다. */
+    const idRow = offline ? '' : '<div class="sb-row">' +
       '<label>' + esc(L.t('submit.name')) +
       ' <input id="subName" maxlength="24" value="' + esc(savedName) + '" placeholder="' + esc(L.t('submit.namePh')) + '"></label>' +
       '<label class="chk"><input id="subReveal" type="checkbox" ' + (reveal ? 'checked' : '') + '> ' + esc(L.t('submit.reveal')) + '</label>' +
-      '</div>' +
+      '</div>';
+    box.innerHTML =
+      idRow +
       '<div class="sb-act">' +
       (offline
         ? '<span class="muted">' + esc(L.t('submit.offline')) + '</span>'

@@ -462,7 +462,42 @@ async function waitForTarget() {
   if (startPath.err) errors.push('START: ' + startPath.err);
   if (!startPath.meta || startPath.meta.rules !== RULES_EXPECT) errors.push('START: 녹화 메타 규칙 버전이 예상과 다름 → ' + (startPath.meta && startPath.meta.rules) + ' (기대 ' + RULES_EXPECT + ')');
 
-  console.log('\n[8] 숫자 서브셋 글꼴(NeonNum) — 로드/적용/잘림');
+  console.log('\n[8] 오프라인 강하(file://) — 서버 없이도 온전히 플레이되고, 서버 기능은 메시지 없이 조용히 꺼진다');
+  const off = JSON.parse(await evalJS(`(async () => {
+    const out = {};
+    out.isFile = location.protocol === 'file:';
+    out.secure = window.isSecureContext;
+    try { const s = await window.TetrisClient.session({ mode: 'marathon', level: 1, g20: false }); out.session = s === null ? 'null (오프라인 감지)' : '값이 옴: ' + JSON.stringify(s).slice(0, 40); }
+    catch (e) { out.session = 'THROW ' + e.message; }
+    const D = window.TetrisDebug;
+    await D.start();
+    for (let i = 0; i < 400 && D.engine && D.engine.state !== 'over'; i++) { D.hardDrop(); await new Promise(r => setTimeout(r, 10)); }
+    out.state = D.engine ? D.engine.state : 'no engine';
+    out.played = D.engine ? ('pieces=' + D.engine.pieces + ' score=' + D.engine.score) : '';
+    await new Promise(r => setTimeout(r, 450));
+    const box = document.getElementById('submitBox');
+    out.boxText = box ? (box.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80) : '없음';
+    out.hasNameInput = !!(box && box.querySelector('#subName'));
+    out.hasSubmitBtn = !!(box && box.querySelector('#subGo'));
+    const n = document.querySelector('.net'); out.netDot = n ? n.className : '없음';
+    const wb = document.getElementById('wbList'); out.board = wb ? (wb.innerText || '').trim().slice(0, 28) : '없음';
+    const hf = document.getElementById('hofList'); out.hof = hf ? (hf.innerText || '').trim().slice(0, 28) : '없음';
+    out.stored = Object.keys(localStorage).filter(function (k) { return /tetris|neon|nt\b|high|nt./i.test(k); });
+    return JSON.stringify(out);
+  })()`, true));
+  console.log('    ', off);
+  ok2(off.isFile === true, 'probe 가 진짜 file:// 에서 돈다');
+  ok2(off.secure === true, 'file:// 도 secure context (WebCrypto 사용 가능)');
+  ok2(/^null/.test(off.session || ''), '세션 발급 실패를 null 로 강하(예외 아님)', off.session);
+  ok2(off.state === 'over' && /pieces=[1-9]/.test(off.played || ''), '서버 없이도 한 판 끝까지 돈다', off.played);
+  ok2(off.hasSubmitBtn === false, '오프라인에서는 제출 버튼이 없다');
+  ok2(off.hasNameInput === false, '오프라인에서는 이름 칸도 내린다(적어도 "써서 뭐하지" 하는 함정은 남기지 않는다)', off.boxText);
+  ok2(/\.off/.test(off.netDot || '') || /off/.test(off.netDot || ''), '네트워크 표시는 꺼진 상태', off.netDot);
+  ok2((off.board || '').length > 0 && (off.hof || '').length > 0, '보드·명예의 전당이 예외 대신 상태 문구를 보여준다', [off.board, off.hof]);
+  ok2(off.stored.length > 0, '최고점 등 로컬 저장소는 동작한다', off.stored);
+
+
+  console.log('\n[9] 숫자 서브셋 글꼴(NeonNum) — 로드/적용/잘림');
   const font = JSON.parse(await evalJS(`(async () => {
     const out = { loaded: false, applied: '', widths: null, usesSubset: false, clipped: [] };
     try { await document.fonts.load('12px NeonNum'); await document.fonts.ready; } catch (e) { out.err = String(e); }
@@ -489,7 +524,7 @@ async function waitForTarget() {
   ok2(font.clipped.length === 0, '글꼴 교체가 숫자 요소를 잘라내지 않는다', font.clipped);
 
 
-  console.log('\n[9] 크로스 런타임 결정론 — 브라우저 엔진과 서버(노드) 재시뮬이 같은 결과를 내야 검증이 성립한다');
+  console.log('\n[10] 크로스 런타임 결정론 — 브라우저 엔진과 서버(노드) 재시뮬이 같은 결과를 내야 검증이 성립한다');
   const EN = require('./engine.js');
   const AI = require('./tools/ai.js');
   const repP = AI.run({ seed: 'parity-7742', preset: 'ace', rng: AI.makeRand('parity') });
@@ -512,7 +547,7 @@ async function waitForTarget() {
   ok2(nodeOut.hash === brOut.hash && nodeOut.score === brOut.score && nodeOut.ticks === brOut.ticks && nodeOut.rules === brOut.rules,
     '같은 입력 → 같은 점수/틱/보드해시 (크로스 런타임)');
 
-  console.log('\n[10] 스크린샷 저장');
+  console.log('\n[11] 스크린샷 저장');
   await cmd('Emulation.setDeviceMetricsOverride', { width: 400, height: 780, deviceScaleFactor: 2, mobile: true });
   await sleep(600);
   const shot2 = await cmd('Page.captureScreenshot', { format: 'png' });
