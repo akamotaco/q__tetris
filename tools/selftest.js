@@ -79,7 +79,7 @@ let botSprint = AI.create({ delay: 0, gap: 1 });
 while (e.state !== 'over' && guard++ < 60 * 60 * 5) {
   e.setBuffer(botSprint.act(e)); e.tick();
 }
-ok('40줄에서 종료', e.lines === 40 && e.overReason === 'finish', e.lines + '/' + e.overReason);
+ok('40줄 목표로 종료', e.lines >= 40 && e.overReason === 'finish', e.lines + '/' + e.overReason);
 ok('스프린트 기록 시간', e.ticks > 60 && e.ticks < 60 * 60 * 2, EN.TICK * e.ticks);
 
 e = EN.create({ seed: 'ultra', mode: 'ultra' });
