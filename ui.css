@@ -230,6 +230,13 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 
+/* ---------- 시트(패널) ---------- */
+/* 데스크톱에서는 "없는 것과 같게": .pane 이 display:contents 라 카드는 그냥 오른쪽 열에 쌓인다.
+   모바일에서는 아래에서 올라오는 시트가 된다 — 월드 보드·명예의 전당이 보드의 세로를 먹지 못리게. */
+.pane { display: contents; }
+.pane-scrim { display: none; }
+#paneBtn { display: none; }
+
 /* ---------- 모바일 ---------- */
 @media (max-width: 900px) {
   /* 모바일은 보드 중심. 카드는 아래로 스크롤 (보드가 카드에 갉아먹히지 않게) */
@@ -278,6 +285,23 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   .submit-box { text-align: left; }
   .rp-head { font-size: 10px; }
   .wb-list { max-height: 132px; }
+  /* 시트 전개 */
+  #paneBtn { display: inline-flex; align-items: center; justify-content: center; }
+  .pane {
+    display: flex; flex-direction: column; gap: 10px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+    max-height: 78vh; overflow: auto; -webkit-overflow-scrolling: touch;
+    background: rgba(6, 9, 18, 0.97); border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0; padding: 12px 10px calc(12px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(101%); transition: transform 0.22s ease;
+    box-shadow: 0 -18px 44px -22px rgba(0, 0, 0, 0.9);
+  }
+  body.pane-open .pane { transform: none; }
+  .pane .card { margin: 0; }
+  .pane .wb-list, .pane .hof-list { max-height: 42vh; }
+  .pane-scrim { position: fixed; inset: 0; z-index: 44; background: rgba(2, 4, 10, 0.62); }
+  body:not(.pane-open) .pane-scrim { display: none; }
+  @media (prefers-reduced-motion: reduce) { .pane { transition: none; } }
 }
 
 @media (max-width: 520px) {
@@ -289,4 +313,9 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   .sel.mini { max-width: 50px; font-size: 9.5px; }
   .icon-btn { width: 30px; height: 28px; }
   .topbar, .topbar-actions { gap: 4px; }
+  /* ≡ (시트 버튼) 을 넣으면 아이콘이 4개가 되고 폭이 다시 넘친다(실측 398>384, ♪ 잘림 —
+     방금 넣은 검정이 그 자리에서 걸었다). 예산: 버튼은 눌러야 하므로 고정, 닉네임·브랜드가 양보한다. */
+  .logo { font-size: 12px; letter-spacing: 0.02em; }
+  .me-chip { max-width: 100px; }
+  .icon-btn { width: 29px; height: 27px; }
 }

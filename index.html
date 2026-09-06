@@ -30,6 +30,7 @@
       <span class="net" id="netDot" title="server"></span>
       <span class="me-chip" id="meChip"></span>
       <select class="sel mini" id="langSel" data-i18n-title="lang.label" title="language"></select>
+      <button class="icon-btn" id="paneBtn" data-i18n-title="pane.open" title="월드 보드·명예의 전당" aria-expanded="false" aria-controls="pane">≡</button>
       <button class="icon-btn" id="pauseBtn" title="일시정지 (P)">❙❙</button>
       <button class="icon-btn" id="restartBtn" title="재시작 (R)">↻</button>
       <button class="icon-btn" id="muteBtn" title="소리 (M)">♪</button>
@@ -112,6 +113,9 @@
         <div class="chips" id="chips"></div>
       </section>
 
+      <!-- 시트(모바일): 데스크톱에서는 .pane 이 display:contents 라 아래 두 카드가 그냥 오른쪽 열에 쌓인다.
+           모바일에서는 화면 아래에서 올라오는 패널이 된다 — 보드가 카드에 세로를 안 뺏기게. -->
+      <div class="pane" id="pane">
       <section class="card" id="worldCard">
         <div class="card-head"><span data-i18n="board.title">월드 레코드</span><span class="hint" id="wbHold"></span></div>
         <div id="worldBoard"></div>
@@ -128,6 +132,8 @@
         </div>
         <div class="hof-list" id="hofList"><div class="muted">…</div></div>
       </section>
+      </div><!-- /pane -->
+      <div class="pane-scrim" id="paneScrim"></div>
     </aside>
   </main>
 

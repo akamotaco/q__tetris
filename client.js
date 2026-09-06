@@ -721,6 +721,25 @@
   }
 
   /* ================= 부트 ================= */
+  /** 모바일 시트(월드 보드 · 명예의 전당). 데스크톱에서는 .pane 이 display:contents 이고 버튼 자체가 숨겨진다.
+   *  일부러 Esc 로는 닫지 않는다: Esc 는 게임 쪽 일시정지와 겹쳐서, 한 키가 두 일을 하게 된다.
+   * 손가락 기기에서는 스크림 탭이 자연스러운 동작이라 그쪽으로 둔다. */
+  function wirePane() {
+    const btn = $('paneBtn'), scrim = $('paneScrim');
+    if (!btn) return;
+    const setPane = function (open) {
+      document.body.classList.toggle('pane-open', !!open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    btn.addEventListener('click', function () { setPane(!document.body.classList.contains('pane-open')); });
+    if (scrim) scrim.addEventListener('click', function () { setPane(false); });
+    /* 시작했는데 시트가 보드를 덮고 있으면 소란스럽다. 버튼 생성 순서에 상관없이 위임으로 잡는다. */
+    document.addEventListener('click', function (e) {
+      const t = e.target;
+      if (t && (t.id === 'ovBtn' || (t.closest && t.closest('#ovBtn')))) setPane(false);
+    });
+  }
+
   CL.init = async function (cfg) {
     const explicit = new URLSearchParams(location.search).get('lang');
     L.set(L.detect([explicit, lsGet(STORE.lang, '')].filter(Boolean)));
@@ -732,6 +751,7 @@
       sel.addEventListener('change', function () { L.set(sel.value); location.reload(); });
     }
     applyI18n();
+    wirePane();
     await identity();
     if (!subtle || isFile) {
       const chip = $('meChip');
@@ -743,6 +763,10 @@
   function applyI18n() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (el) {
       el.textContent = L.t(el.getAttribute('data-i18n'));
+    });
+    /* data-i18n-title 을 쓰는 요소(langSel, paneBtn)가 있었는데 처리기가 없었다 — 툴팁이 원어로 남아 있었다. */
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-title]'), function (el) {
+      el.setAttribute('title', L.t(el.getAttribute('data-i18n-title')));
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-ph]'), function (el) {
       el.setAttribute('placeholder', L.t(el.getAttribute('data-i18n-ph')));

@@ -481,8 +481,32 @@ async function waitForTarget() {
   ok2(mobFix.topbarScroll <= mobFix.topbarClient + 1, '상단 바가 화면 폭을 넘치지 않는다', mobFix.topbarScroll + '>' + mobFix.topbarClient);
   ok2(mobFix.clip.length === 0, '버튼/셀렉트가 화면 오른쪽 밖으로 잘리지 않는다', mobFix.clip);
   ok2(mobFix.overlap <= 1, '보드가 SCORE 카드를 덮지 않는다', '겹침 ' + mobFix.overlap + 'px');
-  ok2(mobFix.cell >= 20, '모바일 칸 크기가 식별 가능한 수준(≥20px)', mobFix.cell + 'px');
+  ok2(mobFix.cell >= 26, '모바일 칸 크기가 식별 가능한 수준(≥26px — 카드가 시트로 빠져 흐름에서 벗어남)', mobFix.cell + 'px');
   ok2(mobFix.mine === 'none', '모바일에서 내 기록 카드는 접힌다', mobFix.mine);
+
+  /* 시트(≡): 기본은 화면 밖, 열리면 월드 보드가 안으로 올라오고, 스크림으로 닫힌다. */
+  const paneFix = JSON.parse(await evalJS(`(async () => {
+    const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+    const btn = document.getElementById('paneBtn'), pane = document.getElementById('pane');
+    const before = { btn: btn ? getComputedStyle(btn).display : '없음', offTop: pane ? Math.round(pane.getBoundingClientRect().top) : -1, vh: innerHeight };
+    if (btn) btn.click();
+    /* 고정 sleep 은 경합한다(한 번 wcVisible:false 로 잡혔다). 전환이 끝날 때까지 상태를 본다. */
+    let open = { bodyOpen: false, wcVisible: false }, wc, i;
+    for (i = 0; i < 20; i++) {
+      await sleep(100);
+      wc = document.getElementById('worldCard').getBoundingClientRect();
+      open = { bodyOpen: document.body.classList.contains('pane-open'), wcVisible: wc.bottom > 0 && wc.top < innerHeight };
+      if (open.wcVisible) break;
+    }
+    open.retries = i;
+    const scrim = document.getElementById('paneScrim'); if (scrim) scrim.click();
+    await sleep(350);
+    return JSON.stringify({ before: before, open: open, closedAfterScrim: !document.body.classList.contains('pane-open') });
+  })()`, true));
+  ok2(paneFix.before.btn !== 'none' && paneFix.before.btn !== '없음', '모바일에서 ≡ 버튼이 보인다', paneFix.before.btn);
+  ok2(paneFix.before.offTop >= paneFix.before.vh - 1, '시트는 기본 상태에서 화면 밖에 있다', paneFix.before.offTop + ' vs vh ' + paneFix.before.vh);
+  ok2(paneFix.open.bodyOpen === true && paneFix.open.wcVisible === true, '≡ 를 누르면 월드 보드가 화면 안으로 올라온다', JSON.stringify(paneFix.open));
+  ok2(paneFix.closedAfterScrim === true, '스크림을 누르면 시트가 닫힌다', String(paneFix.closedAfterScrim));
   await cmd('Emulation.clearDeviceMetricsOverride');
 
   console.log('\n[7] 실제 시작 경로(플레이 버튼이 타는 그 함수) + 녹화 메타');
