@@ -69,8 +69,13 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 .net {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
   background: #3ee08f; box-shadow: 0 0 8px #3ee08f;
+  cursor: pointer; flex: 0 0 auto;
 }
-.net.off { background: #6a7391; box-shadow: none; }
+/* 세 상태: 초록 = 닿고 제출 가능 / 노랑 = 닿지만 제출 불가 / 빨강 = 닿지 않음.
+   옛날엔 꺼짐이 회색 한 가지라 "서버는 살아있는데 서명만 불가" 와 구분되지 않았다. */
+.net.warn { background: #ffcf4a; box-shadow: 0 0 8px #ffcf4a; animation: nt-netpulse 1.8s ease-in-out infinite; }
+.net.off { background: #ff4d5e; box-shadow: 0 0 8px rgba(255, 77, 94, .75); animation: nt-netpulse 1.8s ease-in-out infinite; }
+@keyframes nt-netpulse { 50% { opacity: .45; } }
 .me-chip {
   font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px;
   padding: 3px 9px; background: var(--panel-2); white-space: nowrap;

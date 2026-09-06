@@ -154,6 +154,13 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   ok('지문 칩에 코드네임+지문', /[가-힣a-z]+/i.test(ident.html) && /[0-9a-hj-km-np-z]{6}/i.test(ident.html), ident.html);
   ok('lang 설정', ['ko', 'en', 'ja', 'zh'].indexOf(ident.lang) >= 0, ident.lang);
 
+  /* 연결 표시 세 상태 — localhost 는 보안 맥락이라 초록이어야 한다(노랑이면 서명 키가 만들어지지
+     않은 것이고, 빨강이면 서버를 못 만난 것이다). 아래 LAN 섹션에서 노랑을 함께 확인한다. */
+  await waitReady("document.getElementById('netDot') && !document.getElementById('netDot').classList.contains('off')", '연결 점 초록화');
+  const dot0 = JSON.parse(await ev(`(function(){const d=document.getElementById('netDot');return JSON.stringify({cls:d.className,title:d.title||''});})()`));
+  ok('연결 점이 초록이다(off/warn 없음)', !/off/.test(dot0.cls) && !/warn/.test(dot0.cls), dot0);
+  ok('연결 점에 이유 설명이 걸려 있다(손가락에는 hover 가 없어 눌러서 본다)', (dot0.title || '').length > 6, dot0.title);
+
   group('2. 실제로 플레이 → 녹화 → 제출');
   const play = JSON.parse(await ev(`(async function(){
     const D = window.TetrisDebug;
@@ -403,7 +410,8 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
         const chip = document.getElementById('meChip');
         return JSON.stringify({ secure: window.isSecureContext, subtle: !!window.crypto.subtle,
           health: health, sess: sess, state: window.TetrisDebug.G.state,
-          chip: chip ? chip.textContent.trim() : null, title: chip ? chip.title : '' });
+          chip: chip ? chip.textContent.trim() : null, title: chip ? chip.title : '',
+          dotCls: (document.getElementById('netDot') || {}).className || '', dotTitle: (document.getElementById('netDot') || {}).title || '' });
       })()`, true));
       ok('LAN IP 의 http 는 보안 맥락이 아니다', lan.secure === false, lan);
       ok('그래서 브라우저에 WebCrypto 가 없다', lan.subtle === false, lan);
@@ -412,6 +420,8 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
       ok('게임이 시작된다', lan.state === 'playing', lan.state);
       ok('코드네임 자리에 "서명 불가" 가 뜬다(예전엔 "오프라인" 이라 우겼다)', /서명\s*불가/.test(lan.chip || ''), lan.chip);
       ok('칩 설명에 원인이 적혀 있다', /http/.test(lan.title || ''), lan.title);
+      ok('연결 점은 노란색 — 닿지만 제출 불가(빨강도 초록도 아니다)', /warn/.test(lan.dotCls) && !/off/.test(lan.dotCls), lan.dotCls);
+      ok('노란 점 설명이 이유를 말한다', /서명|http/.test(lan.dotTitle || ''), lan.dotTitle);
 
       /* 제출 상자: 눌러도 실패하는 버튼을 남기지 않고 그 자리에 이유를 쓴다.
          (여기서는 보드를 칠 끝내기 트릭을 써도 된다 — 제출하지 않고 렌더만 본다) */

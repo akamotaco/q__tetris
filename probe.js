@@ -613,6 +613,8 @@ async function waitForTarget() {
   ok2(!!off.st0 && off.st0.localOnly === true && off.st0.share === null, '판 자체는 이 기기 기록으로 남는다(미제출 표시)', off.st0);
   ok2(off.mineRows >= 1 && off.dimRow === true && (off.mineText || '').indexOf(off.localLabel) >= 0, "'내 기록'에 '서버 미제출' 라벨로 보인다", [off.mineRows, off.mineText, off.localLabel]);
   ok2(/\.off/.test(off.netDot || '') || /off/.test(off.netDot || ''), '네트워크 표시는 꺼진 상태', off.netDot);
+  /* 세 상태 표시: 서버가 아예 없는 것은 "닿지만 제출 불가"(노랑)가 아니다. */
+  ok2(!/warn/.test(off.netDot || ''), '서버 없음은 빨강이지 노랑이 아니다', off.netDot);
   ok2((off.board || '').length > 0 && (off.hof || '').length > 0, '보드·명예의 전당이 예외 대신 상태 문구를 보여준다', [off.board, off.hof]);
   ok2(off.stored.length > 0, '최고점 등 로컬 저장소는 동작한다', off.stored);
 

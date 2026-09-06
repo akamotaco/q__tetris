@@ -98,6 +98,7 @@
     } catch (e) {
       identFailed = true;
       me = null;
+      paintNet();
     }
     return me;
   }
@@ -305,10 +306,38 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.classList.remove('on'); }, 3200);
   }
-  function setNet(on) {
-    const el = $('netDot');
-    if (el) el.classList.toggle('off', !on);
+  /* ================= 연결 표시: 세 상태 =================
+     둘로 억지로 접으면("꺼짐" 하나) 사용자가 자기 눈을 의심한다. 서버는 코앞에서 잘 돌아가는데
+     제출만 안 되는 경우(http 접속 → 서명 키 불가)가 대표적이다 — 실제로 "초록불인데 오프라인"
+     이라는 보고서가 여기서 나왔다.
+       초록  서버에 닿고 제출 가능
+       노랑  서버는 닿지만 제출 불가(서명 키 불가 / 이 판은 시드 없음) — 이유가 title 에
+       빨강  서버에 닿지 않음 (그래도 게임은 계속 된다 — 오프라인 강하)                  */
+  let onlineOk = false;
+  function netMsg() {
+    if (!onlineOk) return L.t('net.bad');
+    if (!subtle || identFailed || !me) return L.t('net.noKey');
+    if (CL.sessionFail) return L.t('net.noSeed');
+    return L.t('net.ok');
   }
+  function paintNet() {
+    const el = $('netDot'); if (!el) return;
+    const bad = !onlineOk;
+    const warn = !bad && (!subtle || identFailed || !me || !!CL.sessionFail);
+    el.classList.toggle('off', bad);
+    el.classList.toggle('warn', warn);
+    const m = netMsg();
+    el.title = m;
+    el.setAttribute('aria-label', m);
+  }
+  function setNet(on) { onlineOk = !!on; paintNet(); }
+  /** 주기 확인: 성공한 요청에서 파생한 상태만 믿으면 서버가 죽은 뒤에도 점이 한동안 초록으로 남아 있다. */
+  CL.ping = async function () {
+    const r = await req('GET', '/api/health');
+    const up = !r.offline && r.status === 200;
+    if (up !== onlineOk) { onlineOk = up; paintNet(); }
+    return up;
+  };
   function fmtTime(ticks) {
     const s = ticks / EN.HZ;
     const m = Math.floor(s / 60);
@@ -863,6 +892,14 @@
         chip.title = L.t(isFile ? 'submit.offline' : 'submit.noIdentity');
       }
     }
+    paintNet();
+    if (!isFile) {
+      CL.ping();
+      setInterval(CL.ping, 30000);
+      const dot = $('netDot');
+      /* 손가락에는 hover 가 없다 — 점을 누르면 이유를 토스트로 말한다 */
+      if (dot) dot.addEventListener('click', function () { toast(netMsg()); });
+    }
     return { fp: me ? me.fp : null, lang: L.get() };
   };
 
@@ -878,6 +915,7 @@
       el.setAttribute('placeholder', L.t(el.getAttribute('data-i18n-ph')));
     });
     document.body.dataset.lang = L.get();
+    paintNet();   /* 점 설명(title)은 동적으로 만든다 — 언어를 바꾸면 영어로 남아 있다 */
   }
   CL.applyI18n = applyI18n;
 
