@@ -126,6 +126,27 @@ async function playAndSubmit(me, opt) {
   const rival = newIdentity('ko');
   const thief = newIdentity('ko');
 
+  group('에셋 서빙 — index.html 이 부르는 것들이 http 에서도 실제로 200 인가');
+  /* probe 는 file:// 에서 돈다. 그래서 "저장소에 있는 파일을 서버가 404 로 돌려준다"는 종류의
+     고장을 두 하네스가 둘 다 못 본다(ui.css 가 생긴 날부터 그렇게 죽어 있었다).
+     스타일이 통째로 빠진 페이지는 게임은 돌아가니 수동 확인에서도 안 걸린다. */
+  const pageHtml = await (await fetch(base + '/index.html')).text();
+  const assets = [...new Set([...pageHtml.matchAll(/(?:href|src)="([^"#?]+)"/g)].map((m) => m[1]).filter((u) => !/^https?:|^data:/.test(u)))];
+  const TYPE = { css: 'text/css', js: 'javascript', svg: 'image/svg+xml', webmanifest: 'manifest+json', png: 'image/png' };
+  const bad = [];
+  for (const a of assets) {
+    const r = await fetch(base + '/' + a);
+    const ct = String(r.headers.get('content-type') || '');
+    const body = await r.text();
+    const want = TYPE[(a.split('.').pop() || '').toLowerCase()];
+    if (r.status !== 200) bad.push(a + ' → HTTP ' + r.status);
+    else if (want && ct.indexOf(want) < 0) bad.push(a + ' → content-type 가 ' + ct + ' (기대 ' + want + ')');
+    else if (body.length < 40) bad.push(a + ' → 본문 ' + body.length + '바이트');
+  }
+  ok('index.html 의 에셋 ' + assets.length + '개가 모두 200 + 올바른 종류로 서빙된다', assets.length >= 8 && bad.length === 0, bad.join(' | '));
+  const css = await (await fetch(base + '/ui.css')).text();
+  ok('ui.css 가 실제로 내용을 싣는다 (비어 있으면 스타일만 없는 페이지가 된다)', /@font-face/.test(css) && /\.wb-row/.test(css) && /NeonNum/.test(css), css.length + '바이트');
+
   group('신원 표기');
   ok('지문 형식 + 체크섬', ID.validFp(hero.fp), hero.fp);
   ok('잘못된 체크섬 거부', !ID.validFp(hero.fp.slice(0, 5) + (hero.fp[5] === 'a' ? 'b' : 'a')));

@@ -128,6 +128,18 @@ let browser = null;   /* 크래시 경로에서도 죽일 수 있게 모듈 스�
   await sleep(1200);
 
   group('1. 정체성 (서명 키) 생성과 노출');
+  /* sleep 고정보다 상태를 본다. 정적 자원 하나가 더 붙으면 페이지 준비 순서가 흔들린다 —
+     여기서 JSON.parse 가 죽으면 원인이 "CDP 대상 없음" 처럼 보이지만 사실은 아직 안 된 것이다. */
+  async function waitReady(expr, label, tries) {
+    for (let i = 0; i < (tries || 80); i++) {
+      const v = await ev(`(function(){ try { return !!(${expr}); } catch (e) { return false; } })()`);
+      if (v) return true;
+      await sleep(250);
+    }
+    ok('준비 대기: ' + label, false, expr + ' → ' + ((tries || 80) * 250) + 'ms 안에 참이 되지 않음');
+    return false;
+  }
+  await waitReady("document.getElementById('meChip') && document.getElementById('meChip').textContent.trim().length > 0", '지문 칩');
   const ident = JSON.parse(await ev(`(async function(){
     await new Promise(r=>setTimeout(r,600));
     const chip = document.getElementById('meChip');

@@ -48,6 +48,7 @@ const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/ui.css': ['ui.css', 'text/css; charset=utf-8'],   /* 빠져 있었다 — 한 번도 서빙되지 않은 파일 (probe 는 file:// 라 못 봤다) */
   '/core.js': ['core.js', 'text/javascript; charset=utf-8'],
   '/engine.js': ['engine.js', 'text/javascript; charset=utf-8'],
   '/replay.js': ['replay.js', 'text/javascript; charset=utf-8'],
