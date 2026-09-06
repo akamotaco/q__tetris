@@ -126,7 +126,7 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr) 196px;
+  grid-template-columns: 208px minmax(0, 1fr) 252px;
   gap: 14px;
   align-items: stretch;
 }
@@ -171,12 +171,12 @@ kbd {
 }
 
 /* 프리뷰 */
-.preview { display: block; width: 100%; height: 62px; }
+.preview { display: block; width: 100%; height: 54px; }
 #holdCard { transition: 0.2s ease; }
 #holdCard.cooling { opacity: 0.45; }
 #nextWrap { display: flex; flex-direction: column; gap: 4px; }
-#nextWrap canvas { display: block; width: 100%; height: 40px; min-width: 0; }
-#nextWrap canvas:first-child { height: 62px; }
+#nextWrap canvas { display: block; width: 100%; height: 34px; min-width: 0; }
+#nextWrap canvas:first-child { height: 52px; }
 
 /* 통계 */
 .stats dl { margin: 0; display: grid; gap: 5px; }
@@ -200,7 +200,8 @@ kbd {
 }
 
 /* 점수 카드 */
-.score-card { flex: 1 1 auto; }
+.score-card { flex: 0 0 auto; }   /* 한때 flex:1 — 오른쪽 열에 있을 때는 남는 칸을 채우는 게 옳았지만,
+                                     왼쪽 열로 옮긴 뒤엔 카드 하나가 열을 늘려 속이 텅 비었다. */
 .big-num {
   font-family: var(--mono);
   font-size: 30px;
@@ -355,8 +356,13 @@ kbd {
   cursor: pointer;
 }
 .touch button:active { background: rgba(53, 229, 245, 0.2); }
-body.touch-mode .touch { display: flex; }
-body.touch-mode .keys { display: none; }
+/* 터치 패드는 **손가락 기기**용. body.touch-mode 는 maxTouchPoints>0 만으로 켜지는데, 터치 가능한
+   노트북/올인원은 데스크톱인데도 패드가 깔린다(README 데스크톱 사진에 실제로 그렇게 찍혀 있었다).
+   포인터가 coarse 인지, 창이 좁은지로 gating 한다. */
+@media (pointer: coarse), (max-width: 900px) {
+  body.touch-mode .touch { display: flex; }
+  body.touch-mode .keys { display: none; }
+}
 
 /* ---------- 반응형 ---------- */
 @media (max-width: 900px) {
@@ -370,10 +376,12 @@ body.touch-mode .keys { display: none; }
   .side { display: contents; }
   .side .card { min-width: 0; padding: 7px 8px 8px; }
   #holdCard { grid-area: 1 / 1; }
-  .panel.right .card:first-child { grid-area: 1 / 2; }
-  .panel.left .stats { display: none; }            /* 모바일에선 통계 숨김 */
+  /* 위치는 id 로만 잡는다. first-child/nth-child 로 짠 레이아웃은 카드를 하나 옮겨도 조용히 어긋난다
+     (이번에 HOLD/SCORE 열을 바꾸자 .panel.right .card:first-child 가 HOLD 를 집어버렸다). */
+  #nextCard { grid-area: 1 / 2; }
+  .stats { display: none; }                        /* 모바일에선 통계 숨김 */
   .stage-slot { grid-area: 2 / 1 / 3 / 3; }
-  .score-card {
+  #scoreCard {
     grid-area: 3 / 1 / 4 / 3;
     display: flex;
     align-items: center;

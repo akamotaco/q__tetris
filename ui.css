@@ -53,6 +53,10 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
       .btn:not(#ovBtn), [data-i18n]) { letter-spacing: 0.02em; }
 
 .mono { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+
+/* 키 안내가 데스크톱 왼쪽 열의 카드로 이사왔다: 가운데 정렬(옛 전체폭 footer)이 아니라 왼쪽 채움. */
+.keys.card { justify-content: flex-start; gap: 5px 9px; padding: 10px 12px 12px; }
+.keys.card .card-head { margin-bottom: 7px; }
 /* 점수·시간은 자리가 흔들리면 비교가 안 된다 — 숫자만 서브셋 글꼴로 세운다 */
 .big-num, .mini b, .wb-row b, .wb-row .rk, .rc-gap, .rp-ctrl .mono, .goal b,
 #statTime, #statPieces, #statLpm, #statAps, #statTetris, #statTspin, .me-chip span,
@@ -78,7 +82,7 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 12px;
 }
 .sel.mini { padding: 2px 4px; font-size: 10px; letter-spacing: 0.06em; }
-.hint { font-size: 9px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; }
+.hint { font-size: 9px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
 .netline { margin: 8px 0 0; font-size: 10px; color: var(--dim); text-align: center; }
 
 /* ---------- 설정 (모드 / 시작 레벨 / 20G) ---------- */
@@ -110,6 +114,7 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
 .tab {
   background: transparent; border: 1px solid var(--line); color: var(--dim);
   font: inherit; font-size: 10px; padding: 3px 8px; border-radius: 999px; cursor: pointer;
+  white-space: nowrap;   /* 좁은 열에서 '전 체' 처럼 글자 중간에서 줄이 나는 것을 막는다 */
 }
 .tab.on { background: var(--panel); color: var(--ink); border-color: rgba(53, 229, 245, 0.4); }
 .grow { flex: 1 1 auto; }
@@ -255,10 +260,11 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
       "board hold"
       "board next";
   }
-  .score-card { grid-area: score; }
+  .score-card { display: flex; }   /* 클래스는 스타일용, 위치는 아래 id 로 */
+  #scoreCard { grid-area: score; }
   .stage-slot { grid-area: board; }
   #holdCard { grid-area: hold; }
-  .panel.right > .card:first-child { grid-area: next; }
+  #nextCard { grid-area: next; }
   /* 레일에서는 다음 조각을 세로로 쌓는다(가로로 늘리면 96px 에 안 들어간다) */
   #nextWrap { flex-direction: column; align-items: stretch; gap: 4px; }
   #nextWrap canvas { height: 30px; flex: 0 0 auto; width: 100%; }
@@ -289,6 +295,7 @@ body[data-lang="ko"] .ov-title { letter-spacing: -0.01em; }
   #paneBtn { display: inline-flex; align-items: center; justify-content: center; }
   /* SCORE 스트립 오른쪽 빈 자리 진입로(모바일만). 끝정렬 — 레이블과 숫자 사이는 금지. */
   #paneMine { display: inline-flex; align-items: center; align-self: center; margin-left: auto; }
+  .keys { display: none; }   /* 좁은 화면에서 키 안내는 무의미하다(터치패드가 대신 보인다) */
   .pane {
     display: flex; flex-direction: column; gap: 10px;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;

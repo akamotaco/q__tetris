@@ -92,6 +92,9 @@ async function seed() {
     console.log(' 저장', file);
   };
   await cmd('Runtime.enable'); await cmd('Page.enable');
+  /* 데스크톱 사진을 찍는데 headless 가 primary pointer 를 coarse 로 보고 터치 패드가 깔렸다.
+     마우스 데스크톱으로 보이게 포인터/호버를 명시한다 (모바일 컷에서는 다시 coarse 로). */
+  await cmd('Emulation.setEmulatedMedia', { features: [{ name: 'pointer', value: 'fine' }, { name: 'hover', value: 'hover' }] });
   await sleep(1500);
   /* 보드에 기록이 채워진 상태의 데스크톱 */
   await ev(`(async function(){ document.getElementById('ovBtn').click(); await new Promise(r=>setTimeout(r,1800));
@@ -102,11 +105,18 @@ async function seed() {
       window.dispatchEvent(new KeyboardEvent('keyup',{key:' ',bubbles:true})); await new Promise(r=>setTimeout(r,120)); }
     return 1; })()`);
   await sleep(400);
+  /* 제거 시점이 중요한다: 이 코드를 페이지 활성화 직후에 뒈면 game.js 가 클래스를 붙이기 **전에**
+     실행되어 아무 일도 일어나지 않는다(그래도 사진에는 패드가 남아 있었다). 촬영 직전에 내린다. */
+  await ev(`(function(){ document.body.classList.remove('touch-mode'); return 1; })()`);
+  const padState = await ev(`JSON.stringify({ cls: document.body.className, disp: getComputedStyle(document.getElementById('touch')).display, coarse: matchMedia('(pointer: coarse)').matches })`);
+  console.log(' 데스크톱 직전:', padState);
   await shot(path.join(DOCS, 'preview.png'));
 
   /* 모바일 */
   await cmd('Emulation.clearDeviceMetricsOverride');
   await cmd('Emulation.setDeviceMetricsOverride', { width: 400, height: 820, deviceScaleFactor: 2, mobile: true });
+  await cmd('Emulation.setEmulatedMedia', { features: [{ name: 'pointer', value: 'coarse' }, { name: 'hover', value: 'none' }] });
+  await ev(`(function(){ document.body.classList.add('touch-mode'); return 1; })()`);   /* 손가락 기기 대표 */
   await sleep(1200);
   await shot(path.join(DOCS, 'preview-mobile.png'));
 
